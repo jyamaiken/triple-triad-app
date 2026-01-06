@@ -1,10 +1,11 @@
 export type PlayerType = 'PLAYER' | 'CPU';
-// ゲームの状態管理に 'TITLE' を追加
 export type GameState = 'TITLE' | 'DECK_SELECT' | 'COIN_TOSS' | 'PLAYING' | 'ROUND_END' | 'GAME_OVER';
 
 export interface GameSettings {
-  elementalEnabled: boolean; // 属性ルールの有効・無効
-  cpuDifficulty: 'LOW' | 'MID' | 'HIGH';
+  elementalEnabled: boolean; // 属性ルール
+  sameEnabled: boolean;      // セイム
+  plusEnabled: boolean;      // プラス
+  cpuDifficulty: 'LOW' | 'MID' | 'HIGH' | 'EXPERT'; // EXPERTを追加
   pvpMode: boolean;
 }
 

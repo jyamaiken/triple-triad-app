@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
-import { Swords, Trophy, Medal, CheckCircle2, XCircle, RefreshCw, Settings2, Play, Users, Cpu as CpuIcon, Zap, User } from 'lucide-react';
+import { Swords, Trophy, Medal, CheckCircle2, XCircle, RefreshCw, Settings2, Play, Users, Cpu as CpuIcon, Zap, User, ChevronRight, Layers, Plus as PlusIcon, Sparkles } from 'lucide-react';
 import { useGame } from './hooks/useGame';
+import { getBestMove } from './utils/cpuLogic';
 import DeckSelect from './components/DeckSelect';
 import Hand from './components/Hand';
 import Board from './components/Board';
@@ -13,20 +14,18 @@ export default function App() {
   useEffect(() => {
     if (game.gameState === 'PLAYING' && game.turn === 'CPU' && game.cpuHand.length > 0) {
       const timer = setTimeout(() => {
-        const emptyCells = game.board
-          .map((tile, i) => (tile.card === null ? i : null))
-          .filter((i): i is number => i !== null);
+        // 全ての設定を渡すように修正
+        const { boardIdx, handIdx } = getBestMove(
+          game.board, 
+          game.cpuHand, 
+          game.settings
+        );
         
-        if (emptyCells.length === 0) return;
-
-        const randomCell = emptyCells[Math.floor(Math.random() * emptyCells.length)];
-        const randomHandIdx = Math.floor(Math.random() * game.cpuHand.length);
-        
-        game.placeCard(randomCell, game.cpuHand, randomHandIdx, 'CPU');
+        game.placeCard(boardIdx, game.cpuHand, handIdx, 'CPU');
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [game.turn, game.board, game.gameState, game.cpuHand, game.placeCard]);
+  }, [game.turn, game.board, game.gameState, game.cpuHand, game.placeCard, game.settings]);
 
   // 全体の結果集計
   const seriesWins = game.matchResults.filter(r => r.winner === 'PLAYER').length;
@@ -34,11 +33,18 @@ export default function App() {
   const seriesWinner = seriesWins >= 2 ? 'PLAYER' : seriesLosses >= 2 ? 'CPU' : (game.matchResults.length === 3 ? (seriesWins > seriesLosses ? 'PLAYER' : 'CPU') : null);
   const lastResult = game.matchResults.length > 0 ? game.matchResults[game.matchResults.length - 1] : null;
 
+  // 難易度ごとのスタイル定義
+  const difficultyConfig = {
+    LOW: { label: 'Easy', color: 'text-emerald-400', border: 'border-emerald-900/50', icon: <CpuIcon size={20} /> },
+    MID: { label: 'Normal', color: 'text-blue-400', border: 'border-blue-900/50', icon: <CpuIcon size={20} /> },
+    HIGH: { label: 'Hard', color: 'text-red-400', border: 'border-red-900/50', icon: <CpuIcon size={20} /> },
+    EXPERT: { label: 'Expert', color: 'text-purple-400', border: 'border-purple-500/50', icon: <Sparkles size={20} /> },
+  };
+
   // --- タイトル画面表示 ---
   if (game.gameState === 'TITLE') {
     return (
       <div className="w-full h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-12 overflow-hidden relative font-sans">
-        {/* 背景演出 */}
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full animate-pulse" />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700" />
 
@@ -51,7 +57,7 @@ export default function App() {
           </h1>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 w-full mb-20 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-300">
-            {/* モード選択（現在は CPU 戦のみ） */}
+            {/* モード選択 */}
             <div className="space-y-6">
                <h3 className="flex items-center gap-3 text-slate-500 font-black uppercase tracking-widest text-xs border-b border-slate-900 pb-3">
                  <Users size={16} /> Game Mode
@@ -72,7 +78,7 @@ export default function App() {
                       <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center"><Users size={24} /></div>
                       <div>
                         <div className="font-black italic text-lg uppercase">Local PvP</div>
-                        <div className="text-[10px] text-slate-500 font-bold tracking-widest">LOCKED</div>
+                        <div className="text-[10px] text-slate-500 font-bold tracking-widest">COMING SOON</div>
                       </div>
                     </div>
                   </button>
@@ -84,38 +90,64 @@ export default function App() {
                <h3 className="flex items-center gap-3 text-slate-500 font-black uppercase tracking-widest text-xs border-b border-slate-900 pb-3">
                  <Settings2 size={16} /> Rule Settings
                </h3>
-               <div className="grid grid-cols-1 gap-3">
+               <div className="flex flex-col gap-4">
+                  {/* 特殊ルール3種を同じデザインのグリッドで配置 */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <button 
+                      onClick={() => game.updateSettings({ elementalEnabled: !game.settings.elementalEnabled })}
+                      className={`flex flex-col items-center justify-center p-5 rounded-2xl border-2 transition-all duration-300
+                        ${game.settings.elementalEnabled ? 'bg-emerald-600/20 border-emerald-500' : 'bg-slate-900/50 border-slate-800 opacity-50'}`}
+                    >
+                      <Zap size={22} className={game.settings.elementalEnabled ? 'text-emerald-400' : 'text-slate-600'} fill={game.settings.elementalEnabled ? "currentColor" : "none"} />
+                      <span className={`text-[10px] font-black italic uppercase mt-2 ${game.settings.elementalEnabled ? 'text-white' : 'text-slate-600'}`}>Elem</span>
+                    </button>
+                    
+                    <button 
+                      onClick={() => game.updateSettings({ sameEnabled: !game.settings.sameEnabled })}
+                      className={`flex flex-col items-center justify-center p-5 rounded-2xl border-2 transition-all duration-300
+                        ${game.settings.sameEnabled ? 'bg-blue-600/20 border-blue-500' : 'bg-slate-900/50 border-slate-800 opacity-50'}`}
+                    >
+                      <Layers size={22} className={game.settings.sameEnabled ? 'text-blue-400' : 'text-slate-600'} />
+                      <span className={`text-[10px] font-black italic uppercase mt-2 ${game.settings.sameEnabled ? 'text-white' : 'text-slate-600'}`}>Same</span>
+                    </button>
+
+                    <button 
+                      onClick={() => game.updateSettings({ plusEnabled: !game.settings.plusEnabled })}
+                      className={`flex flex-col items-center justify-center p-5 rounded-2xl border-2 transition-all duration-300
+                        ${game.settings.plusEnabled ? 'bg-amber-600/20 border-amber-500' : 'bg-slate-900/50 border-slate-800 opacity-50'}`}
+                    >
+                      <PlusIcon size={22} className={game.settings.plusEnabled ? 'text-amber-400' : 'text-slate-600'} />
+                      <span className={`text-[10px] font-black italic uppercase mt-2 ${game.settings.plusEnabled ? 'text-white' : 'text-slate-600'}`}>Plus</span>
+                    </button>
+                  </div>
+
+                  {/* 難易度設定サイクル */}
                   <button 
-                    onClick={() => game.updateSettings({ elementalEnabled: !game.settings.elementalEnabled })}
-                    className={`flex items-center justify-between p-6 rounded-2xl border-2 transition-all duration-300
-                      ${game.settings.elementalEnabled 
-                        ? 'bg-emerald-600/10 border-emerald-500/50 shadow-lg shadow-emerald-900/10' 
-                        : 'bg-slate-900/50 border-slate-800 opacity-60'}`}
+                    onClick={() => {
+                      const levels: ('LOW' | 'MID' | 'HIGH' | 'EXPERT')[] = ['LOW', 'MID', 'HIGH', 'EXPERT'];
+                      const currentIdx = levels.indexOf(game.settings.cpuDifficulty);
+                      const nextIdx = (currentIdx + 1) % levels.length;
+                      game.updateSettings({ cpuDifficulty: levels[nextIdx] });
+                    }}
+                    className={`flex items-center justify-between p-6 rounded-2xl border-2 transition-all duration-300 bg-slate-900/50 hover:bg-slate-800/80
+                      ${difficultyConfig[game.settings.cpuDifficulty].border}`}
                   >
                     <div className="flex items-center gap-4 text-left">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${game.settings.elementalEnabled ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-500'}`}>
-                        <Zap size={24} fill={game.settings.elementalEnabled ? "currentColor" : "none"} />
-                      </div>
-                      <div>
-                        <div className={`font-black italic text-lg uppercase ${game.settings.elementalEnabled ? 'text-emerald-400' : 'text-slate-500'}`}>Elemental</div>
-                        <div className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Board Element Bonuses</div>
-                      </div>
-                    </div>
-                    <div className={`w-12 h-6 rounded-full relative transition-colors ${game.settings.elementalEnabled ? 'bg-emerald-500' : 'bg-slate-700'}`}>
-                       <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${game.settings.elementalEnabled ? 'left-7' : 'left-1'}`} />
-                    </div>
-                  </button>
-
-                  <div className="p-6 rounded-2xl bg-slate-900/30 border-2 border-slate-800/50 opacity-40 flex items-center justify-between">
-                    <div className="flex items-center gap-4 text-left">
-                       <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-slate-500"><CpuIcon size={24} /></div>
+                       <div className={`w-12 h-12 rounded-xl flex items-center justify-center bg-slate-800 ${difficultyConfig[game.settings.cpuDifficulty].color}`}>
+                         {difficultyConfig[game.settings.cpuDifficulty].icon}
+                       </div>
                        <div>
-                         <div className="font-black italic text-lg uppercase text-slate-500">CPU: Normal</div>
-                         <div className="text-[10px] text-slate-600 font-bold tracking-widest uppercase">Default Difficulty</div>
+                         <div className={`font-black italic text-lg uppercase ${difficultyConfig[game.settings.cpuDifficulty].color}`}>
+                           CPU: {difficultyConfig[game.settings.cpuDifficulty].label}
+                         </div>
+                         <div className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Intelligence Level</div>
                        </div>
                     </div>
-                    <span className="text-[10px] font-black text-slate-600 border border-slate-800 px-2 py-1 rounded">FIXED</span>
-                  </div>
+                    <div className="flex items-center gap-1 text-slate-500">
+                      <span className="text-[10px] font-black uppercase tracking-widest mr-1">Switch</span>
+                      <ChevronRight size={16} />
+                    </div>
+                  </button>
                </div>
             </div>
           </div>
@@ -130,7 +162,7 @@ export default function App() {
         </div>
 
         <div className="absolute bottom-12 text-[10px] font-black tracking-[0.5em] text-slate-700 uppercase">
-          Arcade System v2.8 | BO3 Rules Engine
+          Arcade System v3.0 | Expert AI Engine
         </div>
       </div>
     );
@@ -141,9 +173,22 @@ export default function App() {
     <div className="w-full h-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col p-8 select-none font-sans">
       <header className="h-20 flex justify-between items-center mb-4 shrink-0 border-b border-slate-900 pb-4 px-4">
         <h1 className="text-4xl font-black tracking-tighter italic uppercase text-white flex items-center gap-4">
-          <Swords className="text-blue-500" size={40} /> Triple Triad <span className="text-blue-400">{game.settings.elementalEnabled ? 'Elemental' : 'Standard'}</span>
+          <Swords className="text-blue-500" size={40} /> Triple Triad 
+          <div className="flex gap-2 ml-4">
+            {game.settings.elementalEnabled && <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-[10px] border border-emerald-500/30 rounded uppercase font-black">Elem</span>}
+            {game.settings.sameEnabled && <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-[10px] border border-blue-500/30 rounded uppercase font-black">Same</span>}
+            {game.settings.plusEnabled && <span className="px-2 py-1 bg-amber-500/20 text-amber-400 text-[10px] border border-amber-500/30 rounded uppercase font-black">Plus</span>}
+          </div>
         </h1>
         <div className="flex items-center gap-8">
+          <div className={`px-4 py-2 bg-slate-900 rounded-xl border flex items-center gap-3 ${difficultyConfig[game.settings.cpuDifficulty].border}`}>
+             <span className={difficultyConfig[game.settings.cpuDifficulty].color}>
+               {difficultyConfig[game.settings.cpuDifficulty].icon}
+             </span>
+             <span className={`text-xs font-black uppercase tracking-widest ${difficultyConfig[game.settings.cpuDifficulty].color}`}>
+               {difficultyConfig[game.settings.cpuDifficulty].label} Mode
+             </span>
+          </div>
           <div className="flex flex-col items-end">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tournament Progress</span>
             <div className="flex gap-2 mt-1">
@@ -169,7 +214,6 @@ export default function App() {
 
       <main className="flex-1 min-h-0 relative">
         {game.gameState === 'DECK_SELECT' && <DeckSelect onSelect={game.startGame} />}
-        
         {game.gameState === 'COIN_TOSS' && game.tossWinner && (
           <CoinToss winner={game.tossWinner} onComplete={game.onTossComplete} />
         )}
@@ -206,11 +250,9 @@ export default function App() {
         )}
       </main>
 
-      {/* 対戦結果モーダル（ラウンド終了 & シリーズ終了） */}
       {(game.gameState === 'ROUND_END' || game.gameState === 'GAME_OVER') && (
         <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex items-center justify-center z-50 p-12">
           <div className="max-w-3xl w-full bg-slate-900 border-4 border-slate-800 p-12 rounded-[4rem] text-center shadow-[0_0_100px_rgba(0,0,0,0.8)] animate-in zoom-in-95 duration-300">
-            
             {game.gameState === 'ROUND_END' ? (
               <>
                 <div className="mb-6 flex flex-col items-center">
@@ -220,24 +262,11 @@ export default function App() {
                     {lastResult?.winner === 'PLAYER' ? 'VICTORY!' : lastResult?.winner === 'CPU' ? 'DEFEAT' : 'DRAW'}
                   </h2>
                 </div>
-                
                 <div className="flex justify-center items-center gap-10 mb-8 text-8xl font-black">
                   <span className="text-blue-500">{lastResult?.scores[0] ?? 0}</span>
                   <span className="text-slate-800">-</span>
                   <span className="text-red-500">{lastResult?.scores[1] ?? 0}</span>
                 </div>
-
-                {game.tieBreakerInfo && (
-                  <div className="bg-slate-950 p-6 rounded-3xl mb-10 border-2 border-yellow-500/20 max-w-lg mx-auto">
-                    <p className="text-yellow-500 font-black mb-2 tracking-[0.3em] text-[10px] uppercase">Tiebreaker Score (Total Stats)</p>
-                    <div className="flex justify-between px-8 text-2xl font-black">
-                      <span className="text-blue-400">P: {game.tieBreakerInfo.pTotalStats}</span>
-                      <span className="text-slate-600">vs</span>
-                      <span className="text-red-400">C: {game.tieBreakerInfo.cTotalStats}</span>
-                    </div>
-                  </div>
-                )}
-
                 <button 
                   onClick={game.nextRound}
                   className="w-full py-6 bg-blue-600 hover:bg-blue-500 text-white rounded-[2.5rem] font-black text-2xl flex items-center justify-center gap-4 transition-all active:scale-95 shadow-xl shadow-blue-900/40"
@@ -256,30 +285,6 @@ export default function App() {
                     {seriesWinner === 'PLAYER' ? 'Champion!' : 'Series Lost'}
                    </h2>
                 </div>
-
-                <div className="grid grid-cols-3 gap-6 mb-12">
-                  {[...Array(3)].map((_, i) => {
-                    const res = game.matchResults[i];
-                    return (
-                      <div key={i} className={`p-6 rounded-[2rem] border-2 flex flex-col items-center justify-center relative
-                        ${!res ? 'bg-slate-900/30 border-slate-800 opacity-30 scale-90' : 
-                          res.winner === 'PLAYER' ? 'bg-blue-900/20 border-blue-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
-                        <span className="text-[10px] font-black text-slate-500 uppercase mb-2">Match 0{i+1}</span>
-                        {res ? (
-                          <>
-                            <span className="text-4xl font-black text-white italic tracking-tighter">{res.scores[0]}-{res.scores[1]}</span>
-                            <span className={`text-[10px] font-black mt-2 uppercase tracking-widest ${res.winner === 'PLAYER' ? 'text-blue-400' : 'text-red-400'}`}>
-                              {res.winner === 'PLAYER' ? 'Win' : 'Loss'}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-xl font-black text-slate-700 italic uppercase">Skipped</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
                 <button 
                   onClick={game.resetGame}
                   className="w-full py-6 bg-white hover:bg-slate-100 text-slate-950 rounded-[2.5rem] font-black text-2xl flex items-center justify-center gap-4 transition-all active:scale-95 shadow-xl"
