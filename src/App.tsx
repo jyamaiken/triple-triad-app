@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
-  Swords, Trophy, Medal, CheckCircle2, XCircle, RefreshCw, 
+  Swords, Trophy, CheckCircle2, XCircle, 
   Settings2, Play, Users, Cpu as CpuIcon, Zap, User, 
   ChevronRight, Layers, Plus as PlusIcon, Sparkles 
 } from 'lucide-react';
@@ -47,113 +47,83 @@ const ELEMENT_ICONS: Record<string, string> = {
   '火': '🔥', '冷': '❄️', '雷': '⚡', '地': '🌍', '風': '🌪️', '水': '💧', '毒': '💀', '聖': '✨'
 };
 
-// --- Utils ---
-const generateDeck = (excludeIds?: Set<number>): Card[] => {
-  const pool = excludeIds ? CARD_DATA.filter(c => !excludeIds.has(c.id)) : CARD_DATA;
+// --- Helper Functions ---
+function resolveImgPath(path: string) {
+  if (!path) return "";
+  if (path.startsWith('http')) return path;
+  // GitHub Pages等のベースパスを考慮
+  const baseUrl = ((import.meta as any).env.BASE_URL || '/').replace(/\/$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${baseUrl}${normalizedPath}`;
+}
+
+function generateDeck(excludeIds?: Set<number>): Card[] {
+  const pool = excludeIds ? (CARD_DATA as any[]).filter(c => !excludeIds.has(c.id)) : (CARD_DATA as any[]);
   const sortedPool = [...pool].sort(() => Math.random() - 0.5);
   return sortedPool.slice(0, 5).map(c => ({ ...c }));
-};
+}
 
-// --- CPU AI Logic ---
-const calculateStats = (card: Card, element: string | null): number[] => {
+function calculateStats(card: Card, element: string | null): number[] {
   if (!element) return [...card.stats];
   const modifier = card.attr === element ? 1 : -1;
   return card.stats.map(s => Math.max(1, Math.min(10, s + modifier)));
-};
+}
 
-const evaluateMove = (boardIdx: number, card: Card, currentBoard: BoardTile[], owner: PlayerType, settings: GameSettings): number => {
-  const stats = calculateStats(card, currentBoard[boardIdx].element);
-  let score = 0;
-
-  const getNeighbors = (idx: number) => [
-    { pos: idx - 3, side: 0, oppSide: 3, active: idx >= 3 },
-    { pos: idx - 1, side: 1, oppSide: 2, active: idx % 3 !== 0 },
-    { pos: idx + 1, side: 2, oppSide: 1, active: idx % 3 !== 2 },
-    { pos: idx + 3, side: 3, oppSide: 0, active: idx < 6 },
-  ];
-
-  const neighborTiles = getNeighbors(boardIdx).filter(n => n.active && currentBoard[n.pos].card);
-  const neighborData = neighborTiles.map(n => ({
-    card: currentBoard[n.pos].card!,
-    myVal: stats[n.side],
-    oppVal: (currentBoard[n.pos].card!.modifiedStats || currentBoard[n.pos].card!.stats)[n.oppSide]
-  }));
-
-  let flips = 0;
-  if (settings.sameEnabled) {
-    const sames = neighborData.filter(n => n.myVal === n.oppVal);
-    if (sames.length >= 2) {
-      flips += sames.filter(n => n.card.owner !== owner).length;
-      score += 50;
-    }
-  }
-  if (settings.plusEnabled) {
-    const sums: Record<number, number> = {};
-    neighborData.forEach(n => { sums[n.myVal + n.oppVal] = (sums[n.myVal + n.oppVal] || 0) + 1; });
-    const plusSums = Object.keys(sums).filter(s => sums[Number(s)] >= 2);
-    if (plusSums.length > 0) {
-      plusSums.forEach(s => { flips += neighborData.filter(n => (n.myVal + n.oppVal) === Number(s) && n.card.owner !== owner).length; });
-      score += 60;
-    }
-  }
-
-  flips += neighborData.filter(n => n.myVal > n.oppVal && n.card.owner !== owner).length;
-  score += flips * 20;
-  score += (stats.reduce((a, b) => a + b, 0) / 4) * 2;
-  if ([0, 2, 6, 8].includes(boardIdx)) score += 15;
-
-  return score;
-};
-
-const getBestMove = (board: BoardTile[], hand: Card[], settings: GameSettings): { boardIdx: number; handIdx: number } => {
+function getBestMove(board: BoardTile[], hand: Card[], settings: GameSettings): { boardIdx: number; handIdx: number } {
   const emptyCells = board.map((t, i) => t.card === null ? i : null).filter((i): i is number => i !== null);
   if (settings.cpuDifficulty === 'LOW' || emptyCells.length === 0) {
     return { boardIdx: emptyCells[Math.floor(Math.random() * emptyCells.length)], handIdx: Math.floor(Math.random() * hand.length) };
   }
-  const moves = emptyCells.flatMap(cellIdx => hand.map((card, hIdx) => ({
-    boardIdx: cellIdx, handIdx: hIdx, score: evaluateMove(cellIdx, card, board, 'P2', settings)
-  })));
+  const moves = emptyCells.flatMap(bIdx => hand.map((card, hIdx) => {
+    const stats = calculateStats(card, board[bIdx].element);
+    let score = 0;
+    const neighbors = [
+      { pos: bIdx - 3, side: 0, oppSide: 3, active: bIdx >= 3 },
+      { pos: bIdx - 1, side: 1, oppSide: 2, active: bIdx % 3 !== 0 },
+      { pos: bIdx + 1, side: 2, oppSide: 1, active: bIdx % 3 !== 2 },
+      { pos: bIdx + 3, side: 3, oppSide: 0, active: bIdx < 6 },
+    ];
+    neighbors.forEach(n => {
+      if (n.active && board[n.pos].card && board[n.pos].card?.owner === 'P1') {
+        const oppVal = (board[n.pos].card!.modifiedStats || board[n.pos].card!.stats)[n.oppSide];
+        if (stats[n.side] > oppVal) score += 20;
+        if (stats[n.side] === oppVal && settings.sameEnabled) score += 50;
+      }
+    });
+    if ([0, 2, 6, 8].includes(bIdx)) score += 10;
+    return { bIdx, hIdx, score };
+  }));
   moves.sort((a, b) => b.score - a.score || Math.random() - 0.5);
-  return { boardIdx: moves[0].boardIdx, handIdx: moves[0].handIdx };
-};
+  return { boardIdx: moves[0].bIdx, handIdx: moves[0].hIdx };
+}
 
-// --- Components ---
+// --- UI Sub-Components ---
 
-const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHovered?: boolean; onClick?: () => void; small?: boolean; side?: 'left' | 'right' }> = ({ card, isSelected, isHovered, onClick, small, side = 'left' }) => {
+function CardComponent({ card, isSelected, isHovered, onClick, small, side = 'left' }: { card: Card | null; isSelected?: boolean; isHovered?: boolean; onClick?: () => void; small?: boolean; side?: 'left' | 'right' }) {
   const [isFlipping, setIsFlipping] = useState(false);
   const [displayOwner, setDisplayOwner] = useState(card?.owner);
   const prevOwnerRef = useRef(card?.owner);
-  const prevCardIdRef = useRef<number | null>(card?.id || null);
 
   useEffect(() => {
     if (!card) return;
-    if (card.id !== prevCardIdRef.current) {
-      setDisplayOwner(card.owner);
-      setIsFlipping(false);
-      prevOwnerRef.current = card.owner;
-      prevCardIdRef.current = card.id;
-      return;
-    }
     if (card.owner !== prevOwnerRef.current) {
       if (prevOwnerRef.current) {
         setIsFlipping(true);
-        const t1 = setTimeout(() => setDisplayOwner(card.owner), 250);
-        const t2 = setTimeout(() => setIsFlipping(false), 500);
-        prevOwnerRef.current = card.owner;
-        return () => { clearTimeout(t1); clearTimeout(t2); };
+        setTimeout(() => setDisplayOwner(card.owner), 250);
+        setTimeout(() => setIsFlipping(false), 500);
       } else {
         setDisplayOwner(card.owner);
       }
       prevOwnerRef.current = card.owner;
     }
-  }, [card?.owner, card?.id]);
+  }, [card?.owner]);
 
   if (!card) return (
-    <div className="w-full aspect-[3/4] bg-slate-800/20 rounded-xl border-2 border-dashed border-slate-700/50 flex items-center justify-center">
-      <div className="w-8 h-8 rounded-full border-4 border-slate-700/10" />
+    <div className="w-full aspect-[3/4] bg-slate-800/20 rounded-xl border-2 border-dashed border-slate-700/30 flex items-center justify-center opacity-50">
+      <div className="w-8 h-8 rounded-full border-4 border-slate-700/10 opacity-20" />
     </div>
   );
-  
+
   const stats = card.modifiedStats || card.stats;
   const displayStat = (val: number) => val === 10 ? 'A' : val;
   const getStatColor = (idx: number) => {
@@ -163,271 +133,160 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
     return 'text-white';
   };
 
-  const getAttrStyle = (attr: string) => {
-    switch (attr) {
-      case '火': return { bg: 'bg-orange-600', icon: '🔥', border: 'border-orange-400' };
-      case '冷': return { bg: 'bg-cyan-500', icon: '❄️', border: 'border-cyan-300' };
-      case '雷': return { bg: 'bg-yellow-500', icon: '⚡', border: 'border-yellow-300' };
-      case '地': return { bg: 'bg-amber-800', icon: '🌍', border: 'border-amber-600' };
-      case '風': return { bg: 'bg-emerald-500', icon: '🌪️', border: 'border-emerald-300' };
-      case '水': return { bg: 'bg-blue-500', icon: '💧', border: 'border-blue-300' };
-      case '毒': return { bg: 'bg-purple-600', icon: '💀', border: 'border-purple-400' };
-      case '聖': return { bg: 'bg-yellow-100', icon: '✨', border: 'border-yellow-400', text: 'text-slate-900' };
-      default: return { bg: 'bg-slate-500', icon: '', border: 'border-slate-400' };
-    }
-  };
-
-  const ownerClass = displayOwner === 'P1' 
-    ? 'from-blue-600 to-blue-900 border-blue-400 border-4 shadow-[0_0_20px_rgba(96,165,250,0.5)]' 
-    : displayOwner === 'P2' 
-      ? 'from-red-600 to-red-900 border-red-400 border-4 shadow-[0_0_20px_rgba(248,113,113,0.5)]' 
-      : 'from-slate-700 to-slate-900 border-slate-500 border-2';
-
-  let translateClass = '';
-  if (onClick) {
-    if (isSelected) {
-      translateClass = side === 'left' ? '-translate-x-[60%] scale-95' : 'translate-x-[60%] scale-95';
-    } else if (isHovered) {
-      translateClass = side === 'left' ? 'hover:-translate-x-[40%] scale-110' : 'hover:translate-x-[40%] scale-110';
-    }
-  }
-
+  const ownerClass = displayOwner === 'P1' ? 'from-blue-600 to-blue-900 border-blue-400 shadow-lg' : 'from-red-600 to-red-900 border-red-400 shadow-lg';
   const transformOrigin = side === 'left' ? 'origin-right' : 'origin-left';
+  let translateClass = isSelected ? (side === 'left' ? '-translate-x-12 scale-95' : 'translate-x-12 scale-95') : (isHovered ? 'scale-105' : '');
 
   return (
-    <div 
-      onClick={(e) => { if (onClick) { e.stopPropagation(); onClick(); } }} 
-      className={`relative w-full aspect-[3/4] transition-all duration-300 perspective-1000 ${transformOrigin} ${onClick ? 'cursor-pointer' : ''} ${isSelected ? 'z-40 ring-4 ring-yellow-400 rounded-xl shadow-[0_0_30px_rgba(250,204,21,0.4)]' : 'z-10 hover:z-50'} ${translateClass} ${small ? 'scale-90' : ''}`}
-    >
+    <div onClick={onClick} className={`relative w-full aspect-[3/4] transition-all duration-300 perspective-1000 ${transformOrigin} ${onClick ? 'cursor-pointer' : ''} ${isSelected ? 'z-40 ring-4 ring-yellow-400 rounded-xl shadow-xl' : 'z-10'} ${translateClass} ${small ? 'scale-90' : ''}`}>
       <div className={`relative w-full h-full transition-transform duration-500 transform-style-3d ${isFlipping ? 'rotate-y-180' : ''}`}>
-        <div className={`absolute inset-0 w-full h-full rounded-xl bg-gradient-to-br ${ownerClass} overflow-hidden shadow-lg backface-hidden`}>
-          <div className="absolute inset-0 bg-slate-900">
-             <img src={card.img} alt={card.name} className="w-full h-full object-cover opacity-80 pointer-events-none" />
-             <div className="absolute inset-0 bg-black/10" />
-          </div>
-
-          <div className="absolute top-1 left-1 w-12 h-14 bg-black/60 backdrop-blur-md rounded-lg border border-white/20 z-20 flex flex-col items-center justify-center shadow-xl">
-            <div className="relative w-full h-full flex flex-col items-center justify-center font-black italic text-white drop-shadow-[0_2px_4px_rgba(0,0,0,1)]">
-              <div className={`text-base leading-none mb-0.5 ${getStatColor(0)}`}>{displayStat(stats[0])}</div>
-              <div className="flex w-full justify-between px-1.5 -my-0.5">
-                 <span className={`text-base leading-none ${getStatColor(1)}`}>{displayStat(stats[1])}</span>
-                 <span className={`text-base leading-none ${getStatColor(2)}`}>{displayStat(stats[2])}</span>
+        <div className={`absolute inset-0 w-full h-full rounded-xl bg-gradient-to-br ${ownerClass} border-4 overflow-hidden backface-hidden shadow-2xl`}>
+          <div className="absolute inset-0 bg-slate-900"><img src={resolveImgPath(card.img)} alt={card.name} className="w-full h-full object-cover opacity-80" /></div>
+          <div className="absolute top-1 left-1 w-12 h-14 bg-black/70 backdrop-blur-md rounded-lg border border-white/20 z-20 flex flex-col items-center justify-center shadow-xl">
+            <div className="relative w-full h-full flex flex-col items-center justify-center font-black italic text-white text-base leading-none drop-shadow-md">
+              <div className={getStatColor(0)}>{displayStat(stats[0])}</div>
+              <div className="flex w-full justify-between px-1">
+                 <span className={getStatColor(1)}>{displayStat(stats[1])}</span>
+                 <span className={getStatColor(2)}>{displayStat(stats[2])}</span>
               </div>
-              <div className={`text-base leading-none mt-0.5 ${getStatColor(3)}`}>{displayStat(stats[3])}</div>
+              <div className={getStatColor(3)}>{displayStat(stats[3])}</div>
             </div>
           </div>
-
           {card.attr && (
-            <div className={`absolute top-1.5 right-1.5 w-7 h-7 ${getAttrStyle(card.attr).bg} ${getAttrStyle(card.attr).border} border-2 rounded-lg flex items-center justify-center shadow-lg z-20`}>
-              <span className={`text-[12px] drop-shadow-sm ${getAttrStyle(card.attr).text || ''}`}>{getAttrStyle(card.attr).icon}</span>
+            <div className="absolute top-1 right-1 w-7 h-7 bg-black/40 border border-white/20 rounded flex items-center justify-center z-20">
+              <span className="text-[12px]">{ELEMENT_ICONS[card.attr]}</span>
             </div>
           )}
-
-          <div className="absolute bottom-0 w-full bg-gradient-to-t from-black/95 via-black/40 to-transparent pt-6 pb-2 px-2 z-10">
-            <div className="text-[13px] font-black text-white uppercase tracking-normal text-center truncate drop-shadow-lg">{card.name}</div>
+          <div className="absolute bottom-0 w-full bg-gradient-to-t from-black/95 pt-8 pb-2 px-2 z-10 text-center">
+            <div className="text-[13px] font-black text-white uppercase truncate drop-shadow-md tracking-tight">{card.name}</div>
           </div>
-          <div className="absolute inset-0 opacity-10 pointer-events-none bg-[radial-gradient(circle_at_20%_20%,_white_0%,_transparent_60%)]" />
         </div>
-        <div className="absolute inset-0 w-full h-full rounded-xl bg-slate-800 border-4 border-slate-600 flex items-center justify-center rotate-y-180 backface-hidden text-slate-500 font-black italic text-lg shadow-inner">TT</div>
+        <div className="absolute inset-0 w-full h-full rounded-xl bg-slate-800 border-4 border-slate-600 flex items-center justify-center rotate-y-180 backface-hidden text-slate-500 font-black italic text-xl shadow-inner">TT</div>
       </div>
     </div>
   );
-};
+}
 
-const Board: React.FC<{ board: BoardTile[]; onPlace: (idx: number) => void; canPlace: boolean; selectedCardAttr: string | null }> = ({ board, onPlace, canPlace, selectedCardAttr }) => {
-  const getTileStyle = (tile: BoardTile) => {
-    if (tile.card) return 'border-slate-700/30 bg-slate-800/20';
-    if (!canPlace) return 'border-slate-800 bg-slate-900/50 opacity-50';
-    if (!tile.element) return 'border-blue-500/40 bg-blue-500/5 shadow-[inset_0_0_15px_rgba(59,130,246,0.1)] hover:border-blue-400';
-    if (tile.element === selectedCardAttr) return 'border-yellow-400 bg-yellow-400/10 shadow-[0_0_20px_rgba(250,204,21,0.3)] animate-pulse hover:border-yellow-300';
-    return 'border-red-900/80 bg-red-950/40 shadow-[inset_0_0_15px_rgba(239,68,68,0.1)] hover:border-red-600';
-  };
-
+function Board({ board, onPlace, canPlace, selectedCardAttr, effect }: { board: BoardTile[]; onPlace: (idx: number) => void; canPlace: boolean; selectedCardAttr: string | null; effect: string | null }) {
   return (
-    <div className="w-full h-full bg-slate-900/80 p-4 rounded-[2.5rem] border-4 border-slate-800 grid grid-cols-3 grid-rows-3 gap-3 shadow-2xl relative">
+    <div className="w-full h-full bg-slate-900/90 p-4 rounded-[2.5rem] border-4 border-slate-800 grid grid-cols-3 grid-rows-3 gap-3 shadow-2xl relative overflow-visible">
       {board.map((tile, i) => (
-        <div key={i} onClick={() => onPlace(i)} className={`relative rounded-2xl border-2 transition-all duration-300 flex items-center justify-center overflow-hidden ${getTileStyle(tile)} ${!tile.card && canPlace ? 'cursor-pointer group hover:scale-[1.02]' : ''}`}>
+        <div key={i} onClick={() => onPlace(i)} className={`relative rounded-2xl border-2 transition-all duration-300 flex items-center justify-center overflow-hidden ${tile.card ? 'border-slate-700/30' : !canPlace ? 'border-slate-800 bg-slate-950/50' : !tile.element ? 'border-blue-500/40 bg-blue-500/5 hover:border-blue-400' : tile.element === selectedCardAttr ? 'border-yellow-400 bg-yellow-400/10 animate-pulse hover:border-yellow-300' : 'border-red-900/40 bg-red-950/20 hover:border-red-600'}`}>
           {!tile.card && tile.element && (
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
-               <span className="text-5xl opacity-20 drop-shadow-lg group-hover:opacity-40 transition-opacity">
-                 {ELEMENT_ICONS[tile.element]}
-               </span>
-               <span className="text-[10px] font-black text-white/10 uppercase mt-1">
-                 {tile.element}
-               </span>
+               <span className="text-5xl opacity-20">{ELEMENT_ICONS[tile.element]}</span>
+               <span className="text-[10px] font-black text-white/10 uppercase mt-1 tracking-widest">{tile.element}</span>
             </div>
           )}
           {tile.card && <div className="w-full h-full p-1 animate-in zoom-in-95 duration-300 z-10"><CardComponent card={tile.card} /></div>}
         </div>
       ))}
+      {effect && (
+        <div className="absolute inset-0 z-[100] flex items-center justify-center pointer-events-none">
+           <div className="animate-effect-text text-8xl font-black italic text-yellow-400 drop-shadow-[0_0_40px_rgba(250,204,21,1)] uppercase tracking-tighter">{effect}!</div>
+        </div>
+      )}
     </div>
   );
-};
+}
 
-const Hand: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selectedIdx: number | null; onSelect: (idx: number) => void; color: 'blue' | 'red' }> = ({ hand, score, isTurn, selectedIdx, onSelect, color }) => {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+function Hand({ hand, score, isTurn, selectedIdx, onSelect, color }: { hand: Card[]; score: number; isTurn: boolean; selectedIdx: number | null; onSelect: (idx: number) => void; color: 'blue' | 'red' }) {
   const isP1 = color === 'blue';
   return (
-    <div className="flex flex-col h-full gap-4 relative">
-      <div className={`p-4 rounded-2xl border-2 shadow-lg flex justify-between items-center z-20 ${isP1 ? 'bg-blue-900/30 border-blue-500/50' : 'bg-red-900/30 border-red-500/50'}`}>
-        <div className="flex flex-col">
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60">{isP1 ? 'Player 1' : 'Player 2'}</span>
-          <span className={`text-3xl font-black italic ${isP1 ? 'text-blue-400' : 'text-red-400'}`}>{score}</span>
+    <div className="flex flex-col h-full w-64 gap-4 relative shrink-0 overflow-hidden">
+      <div className={`p-4 rounded-2xl border-2 shadow-lg flex justify-between items-center z-20 ${isP1 ? 'bg-blue-900/40 border-blue-500/50' : 'bg-red-900/40 border-red-500/50'}`}>
+        <div className="flex flex-col text-left">
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">{isP1 ? 'Player 1' : 'Player 2'}</span>
+          <span className={`text-4xl font-black italic leading-none ${isP1 ? 'text-blue-400' : 'text-red-400'}`}>{score}</span>
         </div>
-        <div className={`w-3 h-12 rounded-full ${isTurn ? (isP1 ? 'bg-blue-500 animate-pulse' : 'bg-red-500 animate-pulse') : 'bg-slate-700'}`} />
+        <div className={`w-3 h-12 rounded-full ${isTurn ? (isP1 ? 'bg-blue-500 animate-pulse' : 'bg-red-500 animate-pulse') : 'bg-slate-800'}`} />
       </div>
-      <div className="flex-1 flex flex-col gap-1 min-h-0 relative">
-        {hand.map((card, i) => (
-          <div 
-            key={`${card.id}-${i}`} 
-            className="h-[18%] w-full min-h-0 relative transition-all duration-300"
-            style={{ zIndex: hoveredIdx === i ? 50 : (selectedIdx === i ? 40 : 10) }}
-            onMouseEnter={() => setHoveredIdx(i)}
-            onMouseLeave={() => setHoveredIdx(null)}
-          >
-            <CardComponent 
-              card={card} 
-              isSelected={selectedIdx === i} 
-              isHovered={hoveredIdx === i}
-              side={isP1 ? 'left' : 'right'} 
-              onClick={() => isTurn && onSelect(i)} 
-            />
-          </div>
-        ))}
-        {[...Array(Math.max(0, 5 - hand.length))].map((_, i) => (
-          <div key={`empty-${i}`} className="h-[18%] w-full min-h-0 opacity-10 pointer-events-none"><CardComponent card={null} /></div>
-        ))}
+      <div className="flex-1 grid grid-rows-5 gap-1 min-h-0 relative">
+        {[...Array(5)].map((_, i) => {
+          const card = hand[i];
+          return (
+            <div key={i} className="w-full h-full relative" style={{ zIndex: selectedIdx === i ? 40 : 10 }}>
+              {card ? (
+                <CardComponent 
+                  card={card} 
+                  isSelected={selectedIdx === i} 
+                  side={isP1 ? 'left' : 'right'} 
+                  onClick={() => isTurn && onSelect(i)} 
+                />
+              ) : (
+                <CardComponent card={null} />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
-};
+}
 
-const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red' }> = ({ onSelect, player, color }) => {
+function DeckSelect({ onSelect, player, color }: { onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red' }) {
   const [options, setOptions] = useState<Card[][]>([]);
   const [hoveredIdx, setHoveredIdx] = useState<number>(0);
-
-  useEffect(() => {
-    const newOptions = Array.from({ length: 5 }).map(() => generateDeck());
-    setOptions(newOptions);
-  }, []);
-
+  useEffect(() => { setOptions(Array.from({ length: 5 }).map(() => generateDeck())); }, []);
   if (options.length === 0) return null;
-
   return (
     <div className="w-full h-full flex flex-col gap-6 animate-in fade-in duration-700">
-      <div className="flex-1 grid grid-cols-5 gap-6">
+      <div className="flex-1 grid grid-cols-5 gap-4">
         {options.map((deck, idx) => (
-          <button 
-            key={`pattern-${idx}`} 
-            onMouseEnter={() => setHoveredIdx(idx)}
-            onClick={() => onSelect(deck)}
-            className={`relative flex flex-col items-center justify-center p-8 rounded-3xl border-4 transition-all duration-300 group
-              ${hoveredIdx === idx 
-                ? (color === 'blue' ? 'bg-blue-600/10 border-blue-500 shadow-[0_0_30px_rgba(59,130,246,0.2)] scale-[1.02]' : 'bg-red-600/10 border-red-500 shadow-[0_0_30px_rgba(239,68,68,0.2)] scale-[1.02]')
-                : 'bg-slate-900/50 border-slate-800 hover:border-slate-600'
-              }`}
-          >
-            <div className={`text-sm font-black mb-2 ${hoveredIdx === idx ? (color === 'blue' ? 'text-blue-400' : 'text-red-400') : 'text-slate-500'}`}>
-              PATTERN 0{idx + 1}
-            </div>
-            <div className="text-4xl font-black italic tracking-tighter mb-6 text-white uppercase">
-              SELECT <span className={color === 'blue' ? 'text-blue-500' : 'text-red-500'}>DECK</span>
-            </div>
-            
-            <div className="space-y-2 w-full text-left opacity-70 group-hover:opacity-100 transition-opacity">
+          <button key={idx} onMouseEnter={() => setHoveredIdx(idx)} onClick={() => onSelect(deck)} className={`relative flex flex-col items-center justify-center p-6 rounded-3xl border-4 transition-all duration-300 group ${hoveredIdx === idx ? (color === 'blue' ? 'bg-blue-600/10 border-blue-500 scale-[1.02]' : 'bg-red-600/10 border-red-500 scale-[1.02]') : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'}`}>
+            <div className={`text-xs font-black mb-2 ${hoveredIdx === idx ? (color === 'blue' ? 'text-blue-400' : 'text-red-400') : 'text-slate-500'}`}>PATTERN 0{idx + 1}</div>
+            <div className="text-3xl font-black italic mb-6 text-white uppercase leading-none">SELECT <span className={color === 'blue' ? 'text-blue-500' : 'text-red-500'}>DECK</span></div>
+            <div className="space-y-1 w-full text-left opacity-80 group-hover:opacity-100 transition-opacity">
               {deck.map((c, i) => (
-                <div key={i} className="flex justify-between text-[10px] font-bold border-b border-slate-800 pb-1">
+                <div key={i} className="flex justify-between text-[10px] font-bold border-b border-slate-800 pb-1 text-slate-300">
                   <span className="text-slate-500 font-mono">Lv.{c.level}</span>
-                  <span className="truncate max-w-[120px] text-slate-300 uppercase">{c.name}</span>
+                  <span className="truncate max-w-[100px] uppercase">{c.name}</span>
                 </div>
               ))}
             </div>
-
-            {hoveredIdx === idx && (
-              <div className={`mt-8 flex items-center gap-2 font-black animate-bounce tracking-widest text-xs uppercase ${color === 'blue' ? 'text-blue-400' : 'text-red-400'}`}>
-                Confirm Deck <Play size={16} fill="currentColor" />
-              </div>
-            )}
           </button>
         ))}
       </div>
-
-      <div className="h-[400px] bg-slate-900/40 border-t-2 border-slate-800 rounded-t-[4rem] p-12 relative overflow-hidden backdrop-blur-sm shrink-0">
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-4 text-slate-600 font-black tracking-[0.5em] text-xs uppercase">
-          <ChevronRight size={16} /> Deck Preview Details <ChevronRight size={16} className="rotate-180" />
-        </div>
-
-        <div className="flex justify-center items-end gap-8 h-full pb-4">
+      <div className="h-[280px] bg-slate-900/40 border-t-2 border-slate-800 rounded-t-[3rem] p-6 flex justify-center items-end gap-4 overflow-hidden backdrop-blur-sm shrink-0">
           {options[hoveredIdx].map((card, i) => (
-            <div key={`${hoveredIdx}-${card.id}-${i}`} className="w-48 h-full flex flex-col transition-all duration-500 transform hover:-translate-y-4">
-               <div className="flex-1 min-h-0 flex items-end pb-2">
-                  <CardComponent card={{...card, owner: player as any}} small />
-               </div>
-               <div className="mt-2 text-center shrink-0">
-                 <div className={`text-[10px] font-black mb-1 tracking-widest ${color === 'blue' ? 'text-blue-500' : 'text-red-500'}`}>LEVEL {card.level}</div>
-                 <div className="text-sm font-black tracking-tight text-white truncate px-2 uppercase">{card.name}</div>
-               </div>
+            <div key={i} className="w-32 flex flex-col transition-all duration-500 transform hover:-translate-y-4">
+              <CardComponent card={{...card, owner: player as any}} small />
+              <div className="mt-2 text-center truncate text-[9px] font-black text-white uppercase">{card.name}</div>
             </div>
           ))}
-        </div>
       </div>
     </div>
   );
-};
+}
 
-const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner, onComplete }) => {
+function CoinToss({ winner, onComplete }: { winner: string; onComplete: () => void }) {
   const [rotation, setRotation] = useState(0);
   const [showResultText, setShowResultText] = useState(false);
-
   useEffect(() => {
     const timer = setTimeout(() => {
       setRotation(360 * 5 + (winner === 'PLAYER 1' ? 0 : 180));
-      setTimeout(() => setShowResultText(true), 3000);
-      setTimeout(onComplete, 4500);
+      setTimeout(() => setShowResultText(true), 2500);
+      setTimeout(onComplete, 4000);
     }, 100);
     return () => clearTimeout(timer);
   }, [winner, onComplete]);
-
   return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl z-50">
-      <div className="mb-16 text-center animate-in fade-in duration-500">
-        <h2 className="text-5xl font-black italic tracking-[0.2em] text-white uppercase mb-4 drop-shadow-[0_0_20px_rgba(59,130,246,0.5)]">Coin Toss</h2>
-        <p className="text-slate-400 font-black tracking-widest uppercase text-sm">Determining the First Turn...</p>
-      </div>
-
-      <div className="relative w-72 h-72 perspective-1000">
-        <div 
-          className="w-full h-full relative transition-transform duration-[3000ms] ease-in-out transform-style-3d" 
-          style={{ 
-            transform: `rotateY(${rotation}deg)` 
-          }}
-        >
-          <div className="absolute inset-0 w-full h-full rounded-full border-[10px] border-blue-400 bg-gradient-to-br from-blue-500 to-blue-800 flex flex-col items-center justify-center shadow-[0_0_60px_rgba(59,130,246,0.6)] backface-hidden">
-            <div className="bg-white/20 p-4 rounded-full mb-2"><span className="text-white font-black text-6xl italic text-center">P1</span></div>
-            <span className="text-blue-100 font-black text-xs tracking-[0.3em] uppercase">Player 1</span>
-          </div>
-          <div className="absolute inset-0 w-full h-full rounded-full border-[10px] border-red-500 bg-gradient-to-br from-red-600 to-red-900 flex flex-col items-center justify-center shadow-[0_0_60px_rgba(239,68,68,0.6)] backface-hidden rotate-y-180">
-            <div className="bg-white/20 p-4 rounded-full mb-2"><span className="text-white font-black text-6xl italic text-center">P2</span></div>
-            <span className="text-red-100 font-black text-xs tracking-[0.3em] uppercase">Player 2</span>
-          </div>
+    <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl z-50 text-center">
+      <div className="mb-12 animate-in fade-in"><h2 className="text-5xl font-black italic text-white uppercase mb-2 leading-none">Coin Toss</h2><p className="text-slate-500 font-bold uppercase text-sm tracking-widest leading-none mt-2">Deciding first turn</p></div>
+      <div className="relative w-64 h-64 perspective-1000">
+        <div className="w-full h-full relative transition-transform duration-[3000ms] ease-in-out transform-style-3d" style={{ transform: `rotateY(${rotation}deg)` }}>
+          <div className="absolute inset-0 w-full h-full rounded-full border-[10px] border-blue-400 bg-gradient-to-br from-blue-500 to-blue-800 flex flex-col items-center justify-center shadow-2xl backface-hidden"><span className="text-white font-black text-7xl italic">P1</span></div>
+          <div className="absolute inset-0 w-full h-full rounded-full border-[10px] border-red-500 bg-gradient-to-br from-red-600 to-red-900 flex flex-col items-center justify-center shadow-2xl backface-hidden rotate-y-180"><span className="text-white font-black text-7xl italic">P2</span></div>
         </div>
       </div>
-
-      <div className="mt-20 h-16 flex flex-col items-center">
-        {showResultText && (
-          <div className="animate-in slide-in-from-bottom-4 zoom-in duration-700">
-             <span className={`text-4xl font-black italic tracking-[0.1em] uppercase px-12 py-4 rounded-full border-4 shadow-2xl ${winner === 'PLAYER 1' ? 'text-blue-400 border-blue-500 bg-blue-500/20 shadow-blue-900/40' : 'text-red-400 border-red-500 bg-red-500/20 shadow-red-900/40'}`}>
-               {winner} START
-             </span>
-          </div>
-        )}
-      </div>
+      <div className="mt-16 h-12">{showResultText && <div className="animate-in slide-in-from-bottom-4 px-10 py-3 rounded-full border-2 bg-white/10 font-black italic text-3xl text-white uppercase">{winner} START</div>}</div>
     </div>
   );
-};
+}
 
-// --- Custom Hook (Logic) ---
-const useGame = () => {
+// --- Custom Hook ---
+
+function useGame() {
   const [gameState, setGameState] = useState<GameState>('TITLE');
   const [round, setRound] = useState(1);
   const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
@@ -436,15 +295,58 @@ const useGame = () => {
   const [board, setBoard] = useState<BoardTile[]>([]);
   const [turn, setTurn] = useState<PlayerType>('P1');
   const [selectedCardIdx, setSelectedCardIdx] = useState<number | null>(null);
-  const [message, setMessage] = useState("");
   const [tossWinner, setTossWinner] = useState<PlayerType | null>(null);
   const [selectingPlayer, setSelectingPlayer] = useState<PlayerType>('P1');
+  const [activeEffect, setActiveEffect] = useState<string | null>(null);
   const [settings, setSettings] = useState<GameSettings>({
     elementalEnabled: true, sameEnabled: true, plusEnabled: true, cpuDifficulty: 'MID', pvpMode: false
   });
 
+  const triggerEffect = useCallback((name: string) => {
+    setActiveEffect(null);
+    setTimeout(() => setActiveEffect(name), 10);
+    setTimeout(() => setActiveEffect(null), 1500);
+  }, []);
+
+  const resetGame = useCallback(() => {
+    setRound(1);
+    setMatchResults([]);
+    setGameState('TITLE');
+  }, []);
+
+  const nextRound = useCallback(() => {
+    setRound(r => r + 1);
+    setSelectingPlayer('P1');
+    setGameState('DECK_SELECT');
+  }, []);
+
+  const onTossComplete = useCallback(() => {
+    if (!tossWinner) return;
+    setTurn(tossWinner);
+    setGameState('PLAYING');
+  }, [tossWinner]);
+
+  const handleDeckSelect = (deck: Card[]) => {
+    if (selectingPlayer === 'P1') {
+      setP1Hand(deck.map(c => ({ ...c, owner: 'P1' })));
+      if (settings.pvpMode) setSelectingPlayer('P2');
+      else { 
+        setP2Hand(generateDeck().map(c => ({ ...c, owner: 'P2' })));
+        setBoard(initializeBoard());
+        const winner = Math.random() > 0.5 ? 'P1' : 'P2';
+        setTossWinner(winner);
+        setGameState('COIN_TOSS');
+      }
+    } else {
+      setP2Hand(deck.map(c => ({ ...c, owner: 'P2' })));
+      setBoard(initializeBoard());
+      const winner = Math.random() > 0.5 ? 'P1' : 'P2';
+      setTossWinner(winner);
+      setGameState('COIN_TOSS');
+    }
+  };
+
   const initializeBoard = useCallback(() => {
-    // TypeScript 型エラー回避のため、型を明示的に指定
     const b: BoardTile[] = Array(9).fill(null).map(() => ({ card: null, element: null }));
     if (!settings.elementalEnabled) return b;
     const count = Math.floor(Math.random() * 4) + 1;
@@ -455,34 +357,13 @@ const useGame = () => {
     return b;
   }, [settings.elementalEnabled]);
 
-  const handleDeckSelect = (deck: Card[]) => {
-    if (selectingPlayer === 'P1') {
-      setP1Hand(deck.map(c => ({ ...c, owner: 'P1' })));
-      if (settings.pvpMode) { setSelectingPlayer('P2'); }
-      else { 
-        setP2Hand(generateDeck().map(c => ({ ...c, owner: 'P2' })));
-        startGame();
-      }
-    } else {
-      setP2Hand(deck.map(c => ({ ...c, owner: 'P2' })));
-      startGame();
-    }
-  };
-
-  const startGame = () => {
-    setBoard(initializeBoard());
-    setTossWinner(Math.random() > 0.5 ? 'P1' : 'P2');
-    setGameState('COIN_TOSS');
-  };
-
   const placeCard = useCallback((idx: number, hand: Card[], handIdx: number, owner: PlayerType) => {
     if (board[idx].card || turn !== owner) return;
-    
     const nextBoard = board.map(tile => ({ ...tile }));
     const card = hand[handIdx];
     const stats = calculateStats(card, nextBoard[idx].element);
     nextBoard[idx].card = { ...card, owner, modifiedStats: stats };
-
+    
     const getNeighbors = (pos: number) => [
       { pos: pos - 3, side: 0, oppSide: 3, active: pos >= 3 },
       { pos: pos - 1, side: 1, oppSide: 2, active: pos % 3 !== 0 },
@@ -491,80 +372,48 @@ const useGame = () => {
     ];
 
     const specialFlipped = new Set<number>();
-    const normalFlipped = new Set<number>();
     const neighbors = getNeighbors(idx);
 
     if (settings.sameEnabled) {
-      const sames = neighbors.filter(n => {
-        const neighbor = nextBoard[n.pos]?.card;
-        if (!neighbor) return false;
-        return stats[n.side] === (neighbor.modifiedStats || neighbor.stats)[n.oppSide];
-      });
-      if (sames.length >= 2) {
-        sames.forEach(n => { if (nextBoard[n.pos].card?.owner !== owner) specialFlipped.add(n.pos); });
+      if (neighbors.filter(n => nextBoard[n.pos]?.card && stats[n.side] === (nextBoard[n.pos].card!.modifiedStats || nextBoard[n.pos].card!.stats)[n.oppSide]).length >= 2) {
+        triggerEffect("SAME");
+        neighbors.forEach(n => { if (nextBoard[n.pos].card && nextBoard[n.pos].card?.owner !== owner) specialFlipped.add(n.pos); });
       }
     }
-
     if (settings.plusEnabled) {
       const sums: Record<number, number[]> = {};
-      neighbors.forEach(n => {
-        const neighbor = nextBoard[n.pos]?.card;
-        if (!neighbor) return;
-        const sum = stats[n.side] + (neighbor.modifiedStats || neighbor.stats)[n.oppSide];
-        if (!sums[sum]) sums[sum] = [];
-        sums[sum].push(n.pos);
-      });
-      Object.values(sums).forEach(posList => { 
-        if (posList.length >= 2) {
-          posList.forEach(p => { if (nextBoard[p].card?.owner !== owner) specialFlipped.add(p); });
-        }
-      });
+      neighbors.forEach(n => { if (nextBoard[n.pos]?.card) { const sum = stats[n.side] + (nextBoard[n.pos].card!.modifiedStats || nextBoard[n.pos].card!.stats)[n.oppSide]; (sums[sum] = sums[sum] || []).push(n.pos); }});
+      Object.values(sums).forEach(plist => { if (plist.length >= 2) { triggerEffect("PLUS"); plist.forEach(p => { if (nextBoard[p].card && nextBoard[p].card?.owner !== owner) specialFlipped.add(p); }); }});
     }
-
-    neighbors.forEach(n => {
-      if (n.active && !specialFlipped.has(n.pos)) {
-        const neighbor = nextBoard[n.pos].card;
-        if (neighbor && neighbor.owner !== owner) {
-          const oppStats = neighbor.modifiedStats || neighbor.stats;
-          if (stats[n.side] > oppStats[n.oppSide]) {
-            normalFlipped.add(n.pos);
-          }
-        }
-      }
-    });
-
+    neighbors.forEach(n => { if (n.active && !specialFlipped.has(n.pos)) { const target = nextBoard[n.pos].card; if (target && target.owner !== owner && stats[n.side] > (target.modifiedStats || target.stats)[n.oppSide]) nextBoard[n.pos].card = { ...target, owner }; }});
     specialFlipped.forEach(p => { nextBoard[p].card = { ...nextBoard[p].card!, owner }; });
-    normalFlipped.forEach(p => { nextBoard[p].card = { ...nextBoard[p].card!, owner }; });
 
     let comboQueue = Array.from(specialFlipped);
     const processedCombo = new Set<number>();
-
+    let comboTriggered = false;
     while (comboQueue.length > 0) {
       const currentPos = comboQueue.shift()!;
       if (processedCombo.has(currentPos)) continue;
       processedCombo.add(currentPos);
-
+      const curCard = nextBoard[currentPos].card!;
+      const curStats = curCard.modifiedStats || curCard.stats;
       getNeighbors(currentPos).forEach(n => {
         if (n.active) {
-          const neighbor = nextBoard[n.pos].card;
-          if (neighbor && neighbor.owner !== owner) {
-            const currentStats = nextBoard[currentPos].card!.modifiedStats || nextBoard[currentPos].card!.stats;
-            const targetStats = neighbor.modifiedStats || neighbor.stats;
-            if (currentStats[n.side] > targetStats[n.oppSide]) {
-              nextBoard[n.pos].card = { ...neighbor, owner };
-              comboQueue.push(n.pos);
-            }
+          const target = nextBoard[n.pos].card;
+          if (target && target.owner !== owner && curStats[n.side] > (target.modifiedStats || target.stats)[n.oppSide]) {
+            if (!comboTriggered) { triggerEffect("COMBO"); comboTriggered = true; }
+            nextBoard[n.pos].card = { ...target, owner };
+            comboQueue.push(n.pos);
           }
         }
       });
     }
-
     setBoard(nextBoard);
     if (owner === 'P1') setP1Hand(prev => prev.filter((_, i) => i !== handIdx));
     else setP2Hand(prev => prev.filter((_, i) => i !== handIdx));
     setSelectedCardIdx(null);
     setTurn(owner === 'P1' ? 'P2' : 'P1');
-  }, [board, turn, settings.sameEnabled, settings.plusEnabled]);
+  }, [board, turn, settings.sameEnabled, settings.plusEnabled, triggerEffect]);
 
   const scores = useMemo(() => {
     let s1 = p1Hand.length, s2 = p2Hand.length;
@@ -572,32 +421,13 @@ const useGame = () => {
     return [s1, s2];
   }, [board, p1Hand, p2Hand]);
 
-  useEffect(() => {
-    if (gameState === 'PLAYING' && board.every(t => t.card)) {
-      const winner = scores[0] > scores[1] ? 'P1' : scores[0] < scores[1] ? 'P2' : 'DRAW';
-      const results = [...matchResults, { winner: winner as any, scores }];
-      setMatchResults(results);
-      if (results.length >= 3 || results.filter(r => r.winner === 'P1').length >= 2 || results.filter(r => r.winner === 'P2').length >= 2) setGameState('GAME_OVER');
-      else setGameState('ROUND_END');
-    }
-  }, [board, scores, gameState, matchResults]);
+  return { gameState, setGameState, round, setRound, matchResults, setMatchResults, p1Hand, p2Hand, board, turn, selectedCardIdx, setSelectedCardIdx, tossWinner, selectingPlayer, settings, setSettings, handleDeckSelect, onTossComplete, placeCard, scores, activeEffect, resetGame, nextRound };
+}
 
-  return { gameState, setGameState, round, matchResults, p1Hand, p2Hand, board, turn, selectedCardIdx, setSelectedCardIdx, tossWinner, selectingPlayer, settings, setSettings, handleDeckSelect, placeCard, scores, setRound, setMatchResults, startDeckSelection: () => { setSelectingPlayer('P1'); setGameState('DECK_SELECT'); }, nextRound: () => { setRound(r => r + 1); setSelectingPlayer('P1'); setGameState('DECK_SELECT'); } };
-};
+// --- Main Application ---
 
-// --- Main App ---
 export default function App() {
   const g = useGame();
-
-  useEffect(() => {
-    if (!g.settings.pvpMode && g.gameState === 'PLAYING' && g.turn === 'P2' && g.p2Hand.length > 0) {
-      const timer = setTimeout(() => {
-        const { boardIdx, handIdx } = getBestMove(g.board, g.p2Hand, g.settings);
-        g.placeCard(boardIdx, g.p2Hand, handIdx, 'P2');
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [g.turn, g.gameState, g.p2Hand, g.settings, g.board, g.placeCard]);
 
   const difficultyConfig = {
     LOW: { label: 'Easy', color: 'text-emerald-400', border: 'border-emerald-900/50', icon: <CpuIcon size={20} /> },
@@ -606,173 +436,147 @@ export default function App() {
     EXPERT: { label: 'Expert', color: 'text-purple-400', border: 'border-purple-500/50', icon: <Sparkles size={20} /> },
   };
 
+  useEffect(() => {
+    if (!g.settings.pvpMode && g.gameState === 'PLAYING' && g.turn === 'P2' && g.p2Hand.length > 0) {
+      const timer = setTimeout(() => {
+        const { boardIdx, handIdx } = getBestMove(g.board, g.p2Hand, g.settings);
+        g.placeCard(boardIdx, g.p2Hand, handIdx, 'P2');
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [g.turn, g.gameState, g.p2Hand, g.settings, g.board, g.placeCard]);
+
+  useEffect(() => {
+    if (g.gameState === 'PLAYING' && g.board.length > 0 && g.board.every(t => t.card)) {
+      const timer = setTimeout(() => {
+        const winner = g.scores[0] > g.scores[1] ? 'P1' : g.scores[0] < g.scores[1] ? 'P2' : 'DRAW';
+        const newResults = [...g.matchResults, { winner: winner as any, scores: g.scores }];
+        g.setMatchResults(newResults);
+        if (newResults.length >= 3 || newResults.filter(r => r.winner === 'P1').length >= 2 || newResults.filter(r => r.winner === 'P2').length >= 2) g.setGameState('GAME_OVER');
+        else g.setGameState('ROUND_END');
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [g.board, g.scores, g.gameState, g.matchResults, g.setMatchResults, g.setGameState]);
+
   if (g.gameState === 'TITLE') return (
-    <div className="w-full h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden relative">
+    <div className="fixed inset-0 w-full h-full bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden text-center">
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full animate-pulse" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700" />
-      
       <div className="relative z-10 flex flex-col items-center max-w-4xl w-full">
-        <div className="mb-2 flex items-center gap-4 text-blue-500 font-black tracking-[0.8em] uppercase text-sm animate-in">Next Gen Card Battle</div>
-        <h1 className="text-9xl font-black italic mb-16 uppercase tracking-tighter drop-shadow-2xl">Triple <span className="text-blue-500">Triad</span></h1>
-        
-        <div className="grid grid-cols-2 gap-12 w-full mb-12">
+        <div className="mb-2 text-blue-500 font-black tracking-[0.8em] uppercase text-sm">Next Gen Card Battle</div>
+        <h1 className="text-7xl md:text-9xl font-black italic mb-16 uppercase tracking-tighter drop-shadow-2xl">Triple <span className="text-blue-500">Triad</span></h1>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 w-full mb-12">
           <div className="space-y-4">
             <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Users size={14} /> Game Mode</h3>
-            <button onClick={() => g.setSettings({ ...g.settings, pvpMode: false })} className={`w-full p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${!g.settings.pvpMode ? 'bg-blue-600 border-blue-400 shadow-lg shadow-blue-900/20' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
-              <div className="flex items-center gap-4"><User size={20} /><span className="font-black italic">VS CPU</span></div>
+            <button onClick={() => g.setSettings({ ...g.settings, pvpMode: false })} className={`w-full p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${!g.settings.pvpMode ? 'bg-blue-600 border-blue-400 shadow-xl' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
+              <div className="flex items-center gap-4 text-left leading-none"><User size={20} /><span className="font-black italic text-lg uppercase">VS CPU</span></div>
               {!g.settings.pvpMode && <CheckCircle2 size={20} />}
             </button>
-            <button onClick={() => g.setSettings({ ...g.settings, pvpMode: true })} className={`w-full p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${g.settings.pvpMode ? 'bg-purple-600 border-purple-400 shadow-lg shadow-purple-900/20' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
-              <div className="flex items-center gap-4"><Users size={20} /><span className="font-black italic">LOCAL PVP</span></div>
+            <button onClick={() => g.setSettings({ ...g.settings, pvpMode: true })} className={`w-full p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${g.settings.pvpMode ? 'bg-purple-600 border-purple-400 shadow-xl' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
+              <div className="flex items-center gap-4 text-left leading-none"><Users size={20} /><span className="font-black italic text-lg uppercase">LOCAL PVP</span></div>
               {g.settings.pvpMode && <CheckCircle2 size={20} />}
             </button>
           </div>
-
-          <div className="space-y-4">
+          <div className="space-y-4 text-left">
             <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Settings2 size={14} /> Rule Settings</h3>
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-3 gap-3">
-                <button onClick={() => g.setSettings({...g.settings, elementalEnabled: !g.settings.elementalEnabled})} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${g.settings.elementalEnabled ? 'bg-emerald-600/20 border-emerald-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
-                  <Zap size={18} className={g.settings.elementalEnabled ? 'text-emerald-400' : ''} />
-                  <span className="text-[10px] font-black uppercase mt-1">Elem</span>
-                </button>
-                <button onClick={() => g.setSettings({...g.settings, sameEnabled: !g.settings.sameEnabled})} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${g.settings.sameEnabled ? 'bg-blue-600/20 border-blue-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
-                  <Layers size={18} className={g.settings.sameEnabled ? 'text-blue-400' : ''} />
-                  <span className="text-[10px] font-black uppercase mt-1">Same</span>
-                </button>
-                <button onClick={() => g.setSettings({...g.settings, plusEnabled: !g.settings.plusEnabled})} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${g.settings.plusEnabled ? 'bg-amber-600/20 border-amber-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
-                  <PlusIcon size={18} className={g.settings.plusEnabled ? 'text-amber-400' : ''} />
-                  <span className="text-[10px] font-black uppercase mt-1">Plus</span>
-                </button>
-              </div>
-              
-              {!g.settings.pvpMode && (
-                <button 
-                  onClick={() => {
-                    const lvls: GameSettings['cpuDifficulty'][] = ['LOW', 'MID', 'HIGH', 'EXPERT'];
-                    g.setSettings({...g.settings, cpuDifficulty: lvls[(lvls.indexOf(g.settings.cpuDifficulty) + 1) % 4]});
-                  }} 
-                  className={`w-full p-6 rounded-2xl border-2 flex items-center justify-between transition-all duration-300 bg-slate-900/50 hover:bg-slate-800/80 ${difficultyConfig[g.settings.cpuDifficulty].border}`}
-                >
-                  <div className="flex items-center gap-4 text-left">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center bg-slate-800 ${difficultyConfig[g.settings.cpuDifficulty].color}`}>
-                      {difficultyConfig[g.settings.cpuDifficulty].icon}
-                    </div>
-                    <div>
-                      <div className={`font-black italic text-lg uppercase ${difficultyConfig[g.settings.cpuDifficulty].color}`}>CPU: {difficultyConfig[g.settings.cpuDifficulty].label}</div>
-                      <div className="text-[10px] text-slate-500 font-bold tracking-widest uppercase leading-tight">Intelligence Level</div>
-                    </div>
-                  </div>
-                  <ChevronRight size={18} className="text-slate-600" />
-                </button>
-              )}
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <button onClick={() => g.setSettings({...g.settings, elementalEnabled: !g.settings.elementalEnabled})} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${g.settings.elementalEnabled ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400' : 'bg-slate-900 border-slate-800 text-slate-500 opacity-40'}`}><Zap size={18} /><span className="text-[10px] font-black uppercase mt-1">Elem</span></button>
+              <button onClick={() => g.setSettings({...g.settings, sameEnabled: !g.settings.sameEnabled})} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${g.settings.sameEnabled ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-500 opacity-40'}`}><Layers size={18} /><span className="text-[10px] font-black uppercase mt-1">Same</span></button>
+              <button onClick={() => g.setSettings({...g.settings, plusEnabled: !g.settings.plusEnabled})} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${g.settings.plusEnabled ? 'bg-amber-600/20 border-amber-500 text-amber-400' : 'bg-slate-900 border-slate-800 text-slate-500 opacity-40'}`}><PlusIcon size={18} /><span className="text-[10px] font-black uppercase mt-1">Plus</span></button>
             </div>
+            
+            {!g.settings.pvpMode && (
+              <button 
+                onClick={() => {
+                  const lvls: GameSettings['cpuDifficulty'][] = ['LOW', 'MID', 'HIGH', 'EXPERT'];
+                  g.setSettings({...g.settings, cpuDifficulty: lvls[(lvls.indexOf(g.settings.cpuDifficulty) + 1) % 4]});
+                }} 
+                className={`w-full p-5 rounded-2xl border-2 flex items-center justify-between transition-all duration-300 bg-slate-900/50 hover:bg-slate-800/80 ${difficultyConfig[g.settings.cpuDifficulty].border}`}
+              >
+                <div className="flex items-center gap-4 text-left">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-slate-800 ${difficultyConfig[g.settings.cpuDifficulty].color}`}>
+                    {difficultyConfig[g.settings.cpuDifficulty].icon}
+                  </div>
+                  <div>
+                    <div className={`font-black italic text-base uppercase ${difficultyConfig[g.settings.cpuDifficulty].color}`}>CPU: {difficultyConfig[g.settings.cpuDifficulty].label}</div>
+                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest leading-none mt-1">Intelligence Level</div>
+                  </div>
+                </div>
+                <ChevronRight size={18} className="text-slate-600" />
+              </button>
+            )}
           </div>
         </div>
-        <button onClick={() => { g.setRound(1); g.setMatchResults([]); g.startDeckSelection(); }} className="px-24 py-8 bg-white text-slate-950 rounded-full font-black text-3xl italic uppercase hover:scale-110 hover:shadow-[0_0_50px_rgba(255,255,255,0.3)] transition-all active:scale-95">Start Battle</button>
+        <button onClick={() => g.setGameState('DECK_SELECT')} className="px-24 py-8 bg-white text-slate-950 rounded-full font-black text-3xl italic uppercase hover:scale-110 transition-all active:scale-95 shadow-[0_0_60px_rgba(255,255,255,0.3)]">Start Battle</button>
       </div>
     </div>
   );
 
   return (
-    <div className="w-full h-screen bg-slate-950 text-white flex flex-col p-8 font-sans overflow-hidden relative">
-      <header className="flex justify-between items-center mb-6 border-b border-slate-900 pb-4 shrink-0">
-        <h1 className="text-3xl font-black italic uppercase flex gap-4 items-center tracking-tighter">
-          <Swords className="text-blue-500" size={32} /> Triple Triad
-          {g.settings.pvpMode && <span className="bg-purple-600/20 border border-purple-500/50 px-3 py-1 rounded-lg text-[10px] tracking-widest">LOCAL PVP</span>}
-        </h1>
-        <div className="flex gap-12 items-center">
-          <div className="flex flex-col items-end">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 text-right">Match Progress</span>
-            <div className="flex gap-2">
-              {[...Array(3)].map((_, i) => {
-                const res = g.matchResults[i];
-                return (
-                  <div key={i} className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${res ? (res.winner === 'P1' ? 'bg-blue-600 border-blue-400' : 'bg-red-600 border-red-400') : 'bg-slate-900 border-slate-800'}`}>
-                    {res ? (res.winner === 'P1' ? <CheckCircle2 size={16} /> : <XCircle size={16} />) : <span className="text-[10px] text-slate-700">{i+1}</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div className="flex gap-6 text-5xl font-black italic tracking-tighter">
-            <div className="text-blue-500">{g.scores[0]}</div>
-            <div className="text-slate-700">-</div>
-            <div className="text-red-500">{g.scores[1]}</div>
-          </div>
+    <div className="fixed inset-0 w-full h-full bg-slate-950 text-white flex flex-col p-6 font-sans overflow-hidden">
+      <header className="flex justify-between items-center mb-6 border-b border-slate-900 pb-4 shrink-0 z-50">
+        <h1 className="text-3xl font-black italic uppercase flex gap-4 items-center tracking-tighter"><Swords className="text-blue-500" size={32} /> Triple Triad</h1>
+        <div className="flex gap-12 items-center text-4xl md:text-5xl font-black italic tracking-tighter leading-none text-right">
+          <div className="text-blue-500">{g.scores[0]}</div><div className="text-slate-800">/</div><div className="text-red-500">{g.scores[1]}</div>
         </div>
       </header>
 
-      <main className="flex-1 relative min-h-0">
-        {g.gameState === 'DECK_SELECT' && (
-          <div className="h-full flex flex-col items-center">
+      <main className="flex-1 relative flex justify-center items-center gap-8 min-h-0">
+        {g.gameState === 'DECK_SELECT' ? (
+          <div className="w-full h-full flex flex-col items-center">
              <div className="mb-6 text-center">
-                <h2 className="text-4xl font-black italic uppercase text-white mb-2 tracking-tight">Deck Selection</h2>
-                <div className={`px-10 py-1.5 rounded-full inline-block font-black uppercase text-xs tracking-widest shadow-xl transition-all duration-500 ${g.selectingPlayer === 'P1' ? 'bg-blue-600 shadow-blue-900/40' : 'bg-red-600 shadow-red-900/40'}`}>
+                <h2 className="text-4xl font-black italic uppercase mb-2 leading-none text-white">Deck Selection</h2>
+                <div className={`px-10 py-1.5 rounded-full inline-block font-black uppercase text-xs tracking-widest shadow-xl ${g.selectingPlayer === 'P1' ? 'bg-blue-600' : 'bg-red-600'}`}>
                    {g.selectingPlayer === 'P1' ? 'PLAYER 1' : 'PLAYER 2'} CHOICE
                 </div>
              </div>
-             <div className="flex-1 w-full max-w-7xl min-h-0">
-                <DeckSelect key={g.selectingPlayer} onSelect={g.handleDeckSelect} player={g.selectingPlayer} color={g.selectingPlayer === 'P1' ? 'blue' : 'red'} />
-             </div>
+             <div className="flex-1 w-full max-w-7xl min-h-0"><DeckSelect onSelect={g.handleDeckSelect} player={g.selectingPlayer} color={g.selectingPlayer === 'P1' ? 'blue' : 'red'} /></div>
           </div>
-        )}
-        
-        {g.gameState === 'COIN_TOSS' && g.tossWinner && (
-          <CoinToss winner={g.tossWinner === 'P1' ? 'PLAYER 1' : (g.settings.pvpMode ? 'PLAYER 2' : 'CPU')} onComplete={() => g.setGameState('PLAYING')} />
-        )}
-
-        {['PLAYING', 'ROUND_END', 'GAME_OVER'].includes(g.gameState) && (
-          <div className="h-full flex gap-12 justify-center animate-in fade-in duration-500 pt-4">
-            <div className="w-64 shrink-0 h-full"><Hand hand={g.p1Hand} score={g.scores[0]} isTurn={g.turn === 'P1'} color="blue" selectedIdx={g.turn === 'P1' ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} /></div>
-            
-            <div className="flex-1 max-w-4xl flex flex-col items-center h-full">
-              <div className={`px-12 py-4 rounded-2xl mb-8 font-black uppercase text-2xl border-b-4 transition-all duration-500 shadow-2xl ${g.turn === 'P1' ? 'bg-blue-600 border-blue-800 shadow-blue-900/40' : 'bg-red-600 border-red-800 shadow-red-900/40'}`}>
-                {g.turn === 'P1' ? "PLAYER 1 TURN" : (g.settings.pvpMode ? "PLAYER 2 TURN" : "CPU THINKING...")}
+        ) : g.gameState === 'COIN_TOSS' ? (
+          <CoinToss winner={g.tossWinner === 'P1' ? 'PLAYER 1' : (g.settings.pvpMode ? 'PLAYER 2' : 'CPU')} onComplete={g.onTossComplete} />
+        ) : (
+          <div className="flex flex-row items-center justify-center gap-12 w-full h-full max-w-7xl mx-auto overflow-hidden">
+            <Hand hand={g.p1Hand} score={g.scores[0]} isTurn={g.turn === 'P1'} color="blue" selectedIdx={g.turn === 'P1' ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} />
+            <div className="flex-1 max-w-2xl flex flex-col items-center justify-center h-full min-h-0 relative">
+              <div className={`px-12 py-3 rounded-full mb-8 font-black uppercase text-xl shadow-2xl transition-all duration-500 border-2 z-50 ${g.turn === 'P1' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-red-600/20 border-red-500 text-red-400'}`}>
+                {g.turn === 'P1' ? "Player 1 Turn" : (g.settings.pvpMode ? "Player 2 Turn" : "CPU Thinking...")}
               </div>
-              <div className="w-full flex-1 min-h-0 flex items-center justify-center p-4">
-                <div className="w-full h-full max-w-lg aspect-square">
-                  <Board 
-                    board={g.board} 
-                    onPlace={(idx) => g.selectedCardIdx !== null && g.placeCard(idx, g.turn === 'P1' ? g.p1Hand : g.p2Hand, g.selectedCardIdx, g.turn)} 
-                    canPlace={g.selectedCardIdx !== null && (g.settings.pvpMode || g.turn === 'P1')} 
-                    selectedCardAttr={g.selectedCardIdx !== null ? (g.turn === 'P1' ? g.p1Hand[g.selectedCardIdx].attr : g.p2Hand[g.selectedCardIdx].attr) : null} 
-                  />
-                </div>
+              <div className="w-full aspect-square max-w-[550px] relative">
+                <Board 
+                  board={g.board} 
+                  onPlace={(idx: number) => g.selectedCardIdx !== null && g.placeCard(idx, g.turn === 'P1' ? g.p1Hand : g.p2Hand, g.selectedCardIdx, g.turn)} 
+                  canPlace={g.selectedCardIdx !== null && (g.settings.pvpMode || g.turn === 'P1')} 
+                  selectedCardAttr={g.selectedCardIdx !== null ? (g.turn === 'P1' ? g.p1Hand[g.selectedCardIdx].attr : g.p2Hand[g.selectedCardIdx].attr) : null}
+                  effect={g.activeEffect}
+                />
               </div>
             </div>
-
-            <div className="w-64 shrink-0 h-full">
-              <Hand hand={g.p2Hand} score={g.scores[1]} isTurn={g.turn === 'P2'} color="red" selectedIdx={g.turn === 'P2' && (g.settings.pvpMode || !g.settings.pvpMode) ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} />
-            </div>
+            <Hand hand={g.p2Hand} score={g.scores[1]} isTurn={g.turn === 'P2'} color="red" selectedIdx={g.turn === 'P2' && g.settings.pvpMode ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} />
           </div>
         )}
       </main>
 
       {['ROUND_END', 'GAME_OVER'].includes(g.gameState) && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex items-center justify-center z-50 p-12">
-          <div className="bg-slate-900 border-4 border-slate-800 p-16 rounded-[4rem] text-center max-w-2xl w-full shadow-[0_0_100px_rgba(0,0,0,0.8)] animate-in zoom-in-95 duration-300">
-            <Trophy className="w-20 h-20 text-yellow-500 mx-auto mb-6 drop-shadow-[0_0_20px_rgba(234,179,8,0.4)]" />
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-2xl flex items-center justify-center z-[200] p-12 overflow-hidden">
+          <div className="bg-slate-900 border-4 border-slate-800 p-16 rounded-[4rem] text-center max-w-2xl w-full shadow-2xl animate-in zoom-in-95 duration-300">
+            <Trophy className="w-20 h-20 text-yellow-500 mx-auto mb-6 drop-shadow-[0_0_20px_rgba(234,179,8,0.6)]" />
             <h2 className="text-6xl font-black italic uppercase mb-8 tracking-tighter text-white">
               {g.matchResults[g.matchResults.length-1]?.winner === 'P1' ? 'PLAYER 1' : g.matchResults[g.matchResults.length-1]?.winner === 'P2' ? 'PLAYER 2' : 'DRAW'}
-              <div className="text-2xl mt-2 text-slate-500 tracking-widest">{g.gameState === 'GAME_OVER' ? 'SERIES CHAMPION' : 'MATCH VICTORY'}</div>
+              <div className="text-2xl mt-2 text-slate-500 tracking-widest font-black uppercase">{g.gameState === 'GAME_OVER' ? 'Series Champion' : 'Match Victory'}</div>
             </h2>
-            <button 
-              onClick={() => g.gameState === 'GAME_OVER' ? g.setGameState('TITLE') : g.nextRound()} 
-              className="w-full py-6 bg-white text-slate-950 rounded-full font-black text-2xl uppercase italic hover:bg-slate-100 transition-all active:scale-95 shadow-xl"
-            >
-              {g.gameState === 'GAME_OVER' ? 'Return to Title' : 'Start Next Match'}
-            </button>
+            <div className="flex gap-4">
+              {g.gameState === 'GAME_OVER' ? <button onClick={g.resetGame} className="flex-1 py-6 bg-white text-slate-950 rounded-full font-black text-2xl uppercase italic hover:scale-105 transition-all active:scale-95 shadow-xl leading-none">Title</button> : <button onClick={g.nextRound} className="flex-1 py-6 bg-white text-slate-950 rounded-full font-black text-2xl uppercase italic hover:scale-105 transition-all active:scale-95 shadow-xl leading-none">Next Match</button>}
+            </div>
           </div>
         </div>
       )}
+
       <style dangerouslySetInnerHTML={{ __html: `
-        .perspective-1000{perspective:1000px}
-        .transform-style-3d{transform-style:preserve-3d}
-        .backface-hidden{backface-visibility:hidden}
-        .rotate-y-180{transform:rotateY(180deg)}
-        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-        .animate-in { animation: fade-in 0.5s ease-out forwards; }
+        .perspective-1000{perspective:1000px} .transform-style-3d{transform-style:preserve-3d} .backface-hidden{backface-visibility:hidden} .rotate-y-180{transform:rotateY(180deg)}
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } } .animate-in { animation: fade-in 0.5s ease-out forwards; }
+        @keyframes effect-text { 0% { transform: scale(0.3) rotate(-10deg); opacity: 0; } 20% { transform: scale(1.2) rotate(5deg); opacity: 1; } 100% { transform: scale(1.5) translateY(-100px); opacity: 0; } }
+        .animate-effect-text { animation: effect-text 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       `}} />
     </div>
   );
