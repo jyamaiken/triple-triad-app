@@ -385,6 +385,13 @@ export default function App() {
   const g = useGame();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
+  const difficultyConfig = {
+    LOW: { label: 'Easy', color: 'text-emerald-400', border: 'border-emerald-900/50', icon: <CpuIcon size={20} /> },
+    MID: { label: 'Normal', color: 'text-blue-400', border: 'border-blue-900/50', icon: <CpuIcon size={20} /> },
+    HIGH: { label: 'Hard', color: 'text-red-400', border: 'border-red-900/50', icon: <CpuIcon size={20} /> },
+    EXPERT: { label: 'Expert', color: 'text-purple-400', border: 'border-purple-500/50', icon: <Sparkles size={20} /> },
+  };
+
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 1024);
     window.addEventListener('resize', handleResize);
@@ -571,7 +578,7 @@ export default function App() {
   );
 }
 
-// 既存のコンポーネントを流用するための定義（CoinTossなどは直前のものを維持）
+// 既存のコンポーネントを流用するための定義
 const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner, onComplete }) => {
   const [rotation, setRotation] = useState(0);
   const [showResultText, setShowResultText] = useState(false);
