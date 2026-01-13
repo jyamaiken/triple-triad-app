@@ -1,9 +1,12 @@
-// vite.config.ts
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// https://vitejs.dev/config/
 export default defineConfig({
-  // リポジトリ名が 'triple-triad-app' の場合。末尾のスラッシュを忘れないでください
-  base: '/triple-triad-app/', 
+  // Vercelデプロイ時はルート、ローカルやGitHub Pagesではサブパスを適用
+  base: process.env.VERCEL ? '/' : '/triple-triad-app/',
   plugins: [react()],
+  build: {
+    outDir: 'dist',
+  }
 })
