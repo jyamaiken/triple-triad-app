@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 
 // カードデータを外部ファイルからインポート
-import CARD_DATA from './data/cards.json';
+import CARD_DATA_RAW from './data/cards.json';
 
 // --- Types ---
 export type PlayerType = 'P1' | 'P2';
@@ -47,18 +47,41 @@ const ELEMENT_ICONS: Record<string, string> = {
   '火': '🔥', '冷': '❄️', '雷': '⚡', '地': '🌍', '風': '🌪️', '水': '💧', '毒': '💀', '聖': '✨'
 };
 
-// --- Utils ---
-const generateDeck = (): Card[] => {
-  const pool = [...(CARD_DATA as Card[])];
-  const sortedPool = pool.sort(() => Math.random() - 0.5);
-  return sortedPool.slice(0, 5).map(c => ({ ...c }));
-};
+const CARD_DATA = CARD_DATA_RAW as Card[];
 
-const calculateStats = (card: Card, element: string | null): number[] => {
+// --- Helper Functions ---
+
+function resolveImgPath(path: string) {
+  if (!path) return "";
+  if (path.startsWith('http')) return path;
+  const env = (import.meta as any).env;
+  const baseUrl = (env?.BASE_URL || '/').replace(/\/$/, '');
+  const cleanPath = path.replace(/^\//, '');
+  return `${baseUrl}/${cleanPath}`;
+}
+
+/**
+ * デッキ生成ロジック
+ * @param excludeIds 重複を避けるために除外するカードIDのセット
+ */
+function generateDeck(excludeIds?: Set<number>): Card[] {
+  // 除外リストにあるカードをフィルタリング
+  const pool = excludeIds 
+    ? CARD_DATA.filter(c => !excludeIds.has(c.id)) 
+    : [...CARD_DATA];
+  
+  // 万が一プールが足りない場合のフォールバック（全カードから選ぶ）
+  const source = pool.length >= 5 ? pool : [...CARD_DATA];
+
+  const sortedPool = source.sort(() => Math.random() - 0.5);
+  return sortedPool.slice(0, 5).map(c => ({ ...c }));
+}
+
+function calculateStats(card: Card, element: string | null): number[] {
   if (!element) return [...card.stats];
   const modifier = card.attr === element ? 1 : -1;
   return card.stats.map(s => Math.max(1, Math.min(10, s + modifier)));
-};
+}
 
 // --- CPU AI Logic ---
 const evaluateMove = (boardIdx: number, card: Card, currentBoard: BoardTile[], owner: PlayerType, settings: GameSettings): number => {
@@ -116,16 +139,6 @@ const getBestMove = (board: BoardTile[], hand: Card[], settings: GameSettings): 
   moves.sort((a, b) => b.score - a.score || Math.random() - 0.5);
   return { boardIdx: moves[0].boardIdx, handIdx: moves[0].handIdx };
 };
-
-// --- Helper Functions ---
-function resolveImgPath(path: string) {
-  if (!path) return "";
-  if (path.startsWith('http')) return path;
-  const env = (import.meta as any).env;
-  const baseUrl = (env?.BASE_URL || '/').replace(/\/$/, '');
-  const cleanPath = path.replace(/^\//, '');
-  return `${baseUrl}/${cleanPath}`;
-}
 
 // --- Components ---
 
@@ -196,14 +209,13 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
   let translateClass = '';
   if (onClick) {
     if (isSelected) {
-      // モバイルなら上、PCなら左右
-      translateClass = isMobile ? '-translate-y-[60%] scale-105' : (side === 'left' ? '-translate-x-[60%] scale-95' : 'translate-x-[60%] scale-95');
+      translateClass = isMobile ? '-translate-y-[60%] scale-95' : (side === 'left' ? '-translate-x-[60%] scale-95' : 'translate-x-[60%] scale-95');
     } else if (isHovered) {
       translateClass = isMobile ? '-translate-y-[20%] scale-105' : (side === 'left' ? 'hover:-translate-x-[40%] scale-110' : 'hover:translate-x-[40%] scale-110');
     }
   }
 
-  const transformOrigin = isMobile ? 'origin-bottom' : (side === 'left' ? 'origin-right' : 'origin-left');
+  const transformOrigin = side === 'left' ? 'origin-right' : 'origin-left';
 
   return (
     <div 
@@ -255,7 +267,7 @@ const BoardComp: React.FC<{ board: BoardTile[]; onPlace: (idx: number) => void; 
                <span className="text-[8px] sm:text-[10px] font-black text-white/10 uppercase mt-1">{tile.element}</span>
             </div>
           )}
-          {tile.card && <div className="w-full h-full p-1 animate-in zoom-in-95 duration-300 z-10"><CardComponent card={tile.card} /></div>}
+          {tile.card && <div className="w-full h-full p-1 animate-in zoom-in-95 duration-300 z-10"><CardComponent card={tile.card} isMobile={false} /></div>}
         </div>
       ))}
     </div>
@@ -294,291 +306,75 @@ const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selecte
           </div>
         ))}
         {[...Array(Math.max(0, 5 - hand.length))].map((_, i) => (
-          <div key={`empty-${i}`} className={`flex-1 ${isMobile ? 'h-full aspect-[3/4]' : 'h-[18%] w-full'} opacity-10 pointer-events-none`}><CardComponent card={null} /></div>
+          <div key={`empty-${i}`} className={`flex-1 ${isMobile ? 'h-full aspect-[3/4]' : 'h-[18%] w-full'} opacity-10 pointer-events-none`}><CardComponent card={null} isMobile={isMobile} /></div>
         ))}
       </div>
     </div>
   );
 };
 
-// --- Logic Hook ---
-const useGame = () => {
-  const [gameState, setGameState] = useState<GameState>('TITLE');
-  const [round, setRound] = useState(1);
-  const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
-  const [p1Hand, setP1Hand] = useState<Card[]>([]);
-  const [p2Hand, setP2Hand] = useState<Card[]>([]);
-  const [board, setBoard] = useState<BoardTile[]>([]);
-  const [turn, setTurn] = useState<PlayerType>('P1');
-  const [selectedCardIdx, setSelectedCardIdx] = useState<number | null>(null);
-  const [tossWinner, setTossWinner] = useState<PlayerType | null>(null);
-  const [selectingPlayer, setSelectingPlayer] = useState<PlayerType>('P1');
-  const [settings, setSettings] = useState<GameSettings>({
-    elementalEnabled: true, sameEnabled: true, plusEnabled: true, cpuDifficulty: 'MID', pvpMode: false
-  });
+const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red'; excludeIds: Set<number>; isMobile: boolean }> = ({ onSelect, player, color, excludeIds, isMobile }) => {
+  const [options, setOptions] = useState<Card[][]>([]);
+  const [hoveredIdx, setHoveredIdx] = useState<number>(0);
 
-  const initializeBoard = useCallback(() => {
-    const b: BoardTile[] = Array(9).fill(null).map(() => ({ card: null, element: null }));
-    if (!settings.elementalEnabled) return b;
-    const count = Math.floor(Math.random() * 4) + 1;
-    for (let i = 0; i < count; i++) {
-      const idx = Math.floor(Math.random() * 9);
-      if (!b[idx].element) b[idx].element = ELEMENTS[Math.floor(Math.random() * ELEMENTS.length)];
-    }
-    return b;
-  }, [settings.elementalEnabled]);
+  useEffect(() => {
+    // 相手が選んだカードを除外して生成
+    const newOptions = Array.from({ length: 5 }).map(() => generateDeck(excludeIds));
+    setOptions(newOptions);
+  }, [excludeIds]);
 
-  const handleDeckSelect = (deck: Card[]) => {
-    if (selectingPlayer === 'P1') {
-      setP1Hand(deck.map(c => ({ ...c, owner: 'P1' })));
-      if (settings.pvpMode) { setSelectingPlayer('P2'); }
-      else { 
-        setP2Hand(generateDeck().map(c => ({ ...c, owner: 'P2' })));
-        startGame();
-      }
+  // スマホ対応: タップでプレビュー、もう一度タップで決定
+  const handleClick = (deck: Card[], idx: number) => {
+    if (isMobile && hoveredIdx !== idx) {
+      setHoveredIdx(idx); // プレビュー切り替え
     } else {
-      setP2Hand(deck.map(c => ({ ...c, owner: 'P2' })));
-      startGame();
+      onSelect(deck); // 決定
     }
   };
 
-  const startGame = () => {
-    setBoard(initializeBoard());
-    setTossWinner(Math.random() > 0.5 ? 'P1' : 'P2');
-    setGameState('COIN_TOSS');
-  };
+  if (options.length === 0) return null;
 
-  const placeCard = useCallback((idx: number, hand: Card[], handIdx: number, owner: PlayerType) => {
-    if (board[idx].card || turn !== owner) return;
-    const nextBoard = board.map(tile => ({ ...tile }));
-    const card = hand[handIdx];
-    const stats = calculateStats(card, nextBoard[idx].element);
-    nextBoard[idx].card = { ...card, owner, modifiedStats: stats };
-    setBoard(nextBoard);
-    if (owner === 'P1') setP1Hand(prev => prev.filter((_, i) => i !== handIdx));
-    else setP2Hand(prev => prev.filter((_, i) => i !== handIdx));
-    setSelectedCardIdx(null);
-    setTurn(owner === 'P1' ? 'P2' : 'P1');
-  }, [board, turn]);
-
-  const scores = useMemo(() => {
-    let s1 = p1Hand.length, s2 = p2Hand.length;
-    board.forEach(t => { if (t.card?.owner === 'P1') s1++; if (t.card?.owner === 'P2') s2++; });
-    return [s1, s2];
-  }, [board, p1Hand, p2Hand]);
-
-  useEffect(() => {
-    if (gameState === 'PLAYING' && board.every(t => t.card)) {
-      const winner = scores[0] > scores[1] ? 'P1' : scores[0] < scores[1] ? 'P2' : 'DRAW';
-      const results = [...matchResults, { winner: winner as any, scores }];
-      setMatchResults(results);
-      if (results.length >= 3 || results.filter(r => r.winner === 'P1').length >= 2 || results.filter(r => r.winner === 'P2').length >= 2) setGameState('GAME_OVER');
-      else setGameState('ROUND_END');
-    }
-  }, [board, scores, gameState, matchResults]);
-
-  return { gameState, setGameState, round, matchResults, p1Hand, p2Hand, board, turn, selectedCardIdx, setSelectedCardIdx, tossWinner, selectingPlayer, settings, setSettings, handleDeckSelect, placeCard, scores, setRound, setMatchResults, startGame, nextRound: () => { setRound(r => r + 1); setSelectingPlayer('P1'); setGameState('DECK_SELECT'); } };
-};
-
-// --- Main App ---
-export default function App() {
-  const g = useGame();
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
-
-  const difficultyConfig = {
-    LOW: { label: 'Easy', color: 'text-emerald-400', border: 'border-emerald-900/50', icon: <CpuIcon size={20} /> },
-    MID: { label: 'Normal', color: 'text-blue-400', border: 'border-blue-900/50', icon: <CpuIcon size={20} /> },
-    HIGH: { label: 'Hard', color: 'text-red-400', border: 'border-red-900/50', icon: <CpuIcon size={20} /> },
-    EXPERT: { label: 'Expert', color: 'text-purple-400', border: 'border-purple-500/50', icon: <Sparkles size={20} /> },
-  };
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 1024);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  useEffect(() => {
-    if (!g.settings.pvpMode && g.gameState === 'PLAYING' && g.turn === 'P2' && g.p2Hand.length > 0) {
-      const timer = setTimeout(() => {
-        const { boardIdx, handIdx } = getBestMove(g.board, g.p2Hand, g.settings);
-        g.placeCard(boardIdx, g.p2Hand, handIdx, 'P2');
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [g.turn, g.gameState, g.p2Hand, g.settings, g.board, g.placeCard]);
-
-  if (g.gameState === 'TITLE') return (
-    <div className="w-full h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden relative">
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full animate-pulse" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700" />
-      
-      <div className="relative z-10 flex flex-col items-center max-w-4xl w-full">
-        <h1 className="text-6xl sm:text-9xl font-black italic mb-8 sm:mb-16 uppercase tracking-tighter drop-shadow-2xl">Triple <span className="text-blue-500">Triad</span></h1>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-12 w-full mb-12">
-          <div className="space-y-4 text-left">
-            <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Users size={14} /> Game Mode</h3>
-            <button onClick={() => g.setSettings({ ...g.settings, pvpMode: false })} className={`w-full p-4 sm:p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${!g.settings.pvpMode ? 'bg-blue-600 border-blue-400 shadow-lg' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
-              <div className="flex items-center gap-4"><User size={20} /><span className="font-black italic uppercase">VS CPU</span></div>
-              {!g.settings.pvpMode && <CheckCircle2 size={20} />}
-            </button>
-            <button onClick={() => g.setSettings({ ...g.settings, pvpMode: true })} className={`w-full p-4 sm:p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${g.settings.pvpMode ? 'bg-purple-600 border-purple-400 shadow-lg' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
-              <div className="flex items-center gap-4"><Users size={20} /><span className="font-black italic uppercase">LOCAL PVP</span></div>
-              {g.settings.pvpMode && <CheckCircle2 size={20} />}
-            </button>
-          </div>
-
-          <div className="space-y-4 text-left">
-            <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Settings2 size={14} /> Rule Settings</h3>
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-3 gap-3">
-                <button onClick={() => g.setSettings({...g.settings, elementalEnabled: !g.settings.elementalEnabled})} className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl border-2 transition-all ${g.settings.elementalEnabled ? 'bg-emerald-600/20 border-emerald-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
-                  <Zap size={18} className={g.settings.elementalEnabled ? 'text-emerald-400' : ''} />
-                  <span className="text-[10px] font-black uppercase mt-1">Elem</span>
-                </button>
-                <button onClick={() => g.setSettings({...g.settings, sameEnabled: !g.settings.sameEnabled})} className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl border-2 transition-all ${g.settings.sameEnabled ? 'bg-blue-600/20 border-blue-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
-                  <Layers size={18} className={g.settings.sameEnabled ? 'text-blue-400' : ''} />
-                  <span className="text-[10px] font-black uppercase mt-1">Same</span>
-                </button>
-                <button onClick={() => g.setSettings({...g.settings, plusEnabled: !g.settings.plusEnabled})} className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl border-2 transition-all ${g.settings.plusEnabled ? 'bg-amber-600/20 border-amber-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
-                  <PlusIcon size={18} className={g.settings.plusEnabled ? 'text-amber-400' : ''} />
-                  <span className="text-[10px] font-black uppercase mt-1">Plus</span>
-                </button>
-              </div>
-              
-              {!g.settings.pvpMode && (
-                <button 
-                  onClick={() => {
-                    const lvls: GameSettings['cpuDifficulty'][] = ['LOW', 'MID', 'HIGH', 'EXPERT'];
-                    g.setSettings({...g.settings, cpuDifficulty: lvls[(lvls.indexOf(g.settings.cpuDifficulty) + 1) % 4]});
-                  }} 
-                  className={`w-full p-4 sm:p-6 rounded-2xl border-2 flex items-center justify-between transition-all duration-300 bg-slate-900/50 hover:bg-slate-800/80 border-slate-800`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center bg-slate-800 ${difficultyConfig[g.settings.cpuDifficulty].color}`}>
-                      <CpuIcon size={20} />
-                    </div>
-                    <div>
-                      <div className={`font-black italic text-base sm:text-lg uppercase ${difficultyConfig[g.settings.cpuDifficulty].color}`}>CPU: {difficultyConfig[g.settings.cpuDifficulty].label}</div>
-                      <div className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Intelligence</div>
-                    </div>
-                  </div>
-                  <ChevronRight size={18} className="text-slate-600" />
-                </button>
-              )}
+  return (
+    <div className="w-full flex flex-col gap-6 animate-in fade-in duration-700 px-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-6">
+        {options.map((deck, idx) => (
+          <button 
+            key={idx} 
+            onMouseEnter={() => !isMobile && setHoveredIdx(idx)} 
+            onClick={() => handleClick(deck, idx)} 
+            className={`relative flex flex-col items-center justify-center p-4 sm:p-8 rounded-2xl sm:rounded-3xl border-2 sm:border-4 transition-all duration-300 
+              ${hoveredIdx === idx 
+                ? (color === 'blue' ? 'bg-blue-600/10 border-blue-500 scale-[1.02]' : 'bg-red-600/10 border-red-500 scale-[1.02]') 
+                : 'bg-slate-900/50 border-slate-800 hover:border-slate-600'
+              }`}
+          >
+            <div className={`text-[10px] sm:text-xs font-black mb-1 ${hoveredIdx === idx ? (color === 'blue' ? 'text-blue-400' : 'text-red-400') : 'text-slate-500'}`}>PATTERN 0{idx + 1}</div>
+            <div className="text-xl sm:text-3xl font-black italic tracking-tighter mb-4 text-white uppercase leading-none">SELECT <span className={color === 'blue' ? 'text-blue-500' : 'text-red-500'}>DECK</span></div>
+            <div className="space-y-1 w-full text-left opacity-70 group-hover:opacity-100 transition-opacity">
+              {deck.map((c, i) => (
+                <div key={i} className="flex justify-between text-[8px] sm:text-[10px] font-bold border-b border-slate-800 pb-0.5"><span className="text-slate-500 font-mono">Lv.{c.level}</span><span className="truncate max-w-[80px] sm:max-w-[120px] text-slate-300 uppercase">{c.name}</span></div>
+              ))}
             </div>
-          </div>
-        </div>
-        <button onClick={() => { g.setRound(1); g.setMatchResults([]); g.setGameState('DECK_SELECT'); }} className="px-16 sm:px-24 py-5 sm:py-8 bg-white text-slate-950 rounded-full font-black text-xl sm:text-3xl italic uppercase hover:scale-110 transition-all active:scale-95 shadow-xl">Start Battle</button>
+            {hoveredIdx === idx && (
+              <div className={`mt-4 flex items-center gap-1 font-black animate-pulse text-xs uppercase ${color === 'blue' ? 'text-blue-400' : 'text-red-400'}`}>
+                {isMobile ? 'Tap again to Confirm' : 'Click to Confirm'} <Play size={12} fill="currentColor" />
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+      <div className="flex h-[280px] sm:h-[380px] bg-slate-900/40 border-t-2 border-slate-800 rounded-t-[3rem] sm:rounded-t-[4rem] p-6 sm:p-10 justify-center items-end gap-2 sm:gap-6 overflow-hidden backdrop-blur-sm shrink-0">
+          {options[hoveredIdx].map((card, i) => (
+            <div key={`${hoveredIdx}-${card.id}-${i}`} className="w-32 sm:w-40 flex flex-col transition-all duration-500 transform hover:-translate-y-4">
+               <div className="flex-1 min-h-0 flex items-end pb-2"><CardComponent card={{...card, owner: player as any}} small isMobile={false} /></div>
+               <div className="mt-2 text-center shrink-0 leading-tight"><div className={`text-[9px] sm:text-[10px] font-black ${color === 'blue' ? 'text-blue-500' : 'text-red-500'}`}>LEVEL {card.level}</div><div className="text-xs sm:text-sm font-black text-white truncate px-1 uppercase">{card.name}</div></div>
+            </div>
+          ))}
       </div>
     </div>
   );
+};
 
-  return (
-    <div className="w-full h-screen bg-slate-950 text-white flex flex-col p-2 sm:p-8 font-sans overflow-hidden relative">
-      <header className="flex justify-between items-center mb-2 sm:mb-6 border-b border-slate-900 pb-2 sm:pb-4 shrink-0 z-50">
-        <h1 className="text-lg sm:text-3xl font-black italic uppercase flex gap-2 sm:gap-4 items-center tracking-tighter">
-          <Swords className="text-blue-500" size={isMobile ? 24 : 32} /> Triple Triad
-        </h1>
-        <div className="flex gap-4 sm:gap-12 items-center">
-          <div className="hidden sm:flex gap-2">
-            {[...Array(3)].map((_, i) => {
-              const res = g.matchResults[i];
-              return (
-                <div key={i} className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${res ? (res.winner === 'P1' ? 'bg-blue-600 border-blue-400' : 'bg-red-600 border-red-400') : 'bg-slate-900 border-slate-800'}`}>
-                  {res ? (res.winner === 'P1' ? <CheckCircle2 size={16} /> : <XCircle size={16} />) : <span className="text-[10px] text-slate-700">{i+1}</span>}
-                </div>
-              );
-            })}
-          </div>
-          <div className="flex gap-4 sm:gap-6 text-2xl sm:text-5xl font-black italic tracking-tighter leading-none">
-            <div className="text-blue-500">{g.scores[0]}</div>
-            <div className="text-slate-700">-</div>
-            <div className="text-red-500">{g.scores[1]}</div>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 relative min-h-0 w-full flex flex-col">
-        {g.gameState === 'DECK_SELECT' && (
-          <div className="h-full flex flex-col items-center overflow-y-auto pb-10">
-             <div className="mb-4 sm:mb-6 text-center shrink-0">
-                <h2 className="text-2xl sm:text-4xl font-black italic uppercase text-white mb-1 leading-none">Deck Selection</h2>
-                <div className={`px-6 sm:px-10 py-1 sm:py-1.5 rounded-full inline-block font-black uppercase text-[10px] sm:text-xs tracking-widest shadow-xl ${g.selectingPlayer === 'P1' ? 'bg-blue-600' : 'bg-red-600'}`}>
-                   {g.selectingPlayer === 'P1' ? 'PLAYER 1' : 'PLAYER 2'} CHOICE
-                </div>
-             </div>
-             <div className="flex-1 w-full max-w-7xl min-h-0">
-                <DeckSelect key={g.selectingPlayer} onSelect={g.handleDeckSelect} player={g.selectingPlayer} color={g.selectingPlayer === 'P1' ? 'blue' : 'red'} />
-             </div>
-          </div>
-        )}
-        
-        {g.gameState === 'COIN_TOSS' && g.tossWinner && (
-          <CoinToss winner={g.tossWinner === 'P1' ? 'PLAYER 1' : (g.settings.pvpMode ? 'PLAYER 2' : 'CPU')} onComplete={() => g.setGameState('PLAYING')} />
-        )}
-
-        {['PLAYING', 'ROUND_END', 'GAME_OVER'].includes(g.gameState) && (
-          <div className="h-full w-full flex flex-col lg:flex-row gap-4 lg:gap-12 justify-center animate-in fade-in duration-500 overflow-hidden">
-            {/* Player 2 Hand (Mobile: Top, Desktop: Right) */}
-            <div className="w-full lg:w-64 shrink-0 order-1 lg:order-3">
-              <HandComp hand={g.p2Hand} score={g.scores[1]} isTurn={g.turn === 'P2'} color="red" selectedIdx={g.turn === 'P2' && g.settings.pvpMode ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isMobile={isMobile} />
-            </div>
-            
-            {/* Board Area (Center) */}
-            <div className="flex-1 flex flex-col items-center justify-center min-h-0 order-2">
-              <div className={`px-6 sm:px-12 py-1.5 sm:py-3 rounded-full mb-3 sm:mb-6 font-black uppercase text-xs sm:text-xl border-b-4 transition-all duration-500 shadow-2xl ${g.turn === 'P1' ? 'bg-blue-600 border-blue-800 shadow-blue-900/40' : 'bg-red-600 border-red-800 shadow-red-900/40'}`}>
-                {g.turn === 'P1' ? "PLAYER 1 TURN" : (g.settings.pvpMode ? "PLAYER 2 TURN" : "CPU THINKING...")}
-              </div>
-              <div className="w-full max-w-[450px] aspect-square">
-                <BoardComp 
-                  board={g.board} 
-                  onPlace={(idx) => g.selectedCardIdx !== null && g.placeCard(idx, g.turn === 'P1' ? g.p1Hand : g.p2Hand, g.selectedCardIdx, g.turn)} 
-                  canPlace={g.selectedCardIdx !== null && (g.settings.pvpMode || g.turn === 'P1')} 
-                  selectedCardAttr={g.selectedCardIdx !== null ? (g.turn === 'P1' ? g.p1Hand[g.selectedCardIdx].attr : g.p2Hand[g.selectedCardIdx].attr) : null} 
-                />
-              </div>
-            </div>
-
-            {/* Player 1 Hand (Mobile: Bottom, Desktop: Left) */}
-            <div className="w-full lg:w-64 shrink-0 order-3 lg:order-1">
-              <HandComp hand={g.p1Hand} score={g.scores[0]} isTurn={g.turn === 'P1'} color="blue" selectedIdx={g.turn === 'P1' ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isMobile={isMobile} />
-            </div>
-          </div>
-        )}
-      </main>
-
-      {['ROUND_END', 'GAME_OVER'].includes(g.gameState) && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex items-center justify-center z-50 p-6 sm:p-12">
-          <div className="bg-slate-900 border-4 border-slate-800 p-8 sm:p-16 rounded-[2rem] sm:rounded-[4rem] text-center max-w-2xl w-full shadow-2xl animate-in zoom-in-95 duration-300">
-            <Trophy className="w-12 h-12 sm:w-20 mx-auto mb-4 sm:mb-6 text-yellow-500 drop-shadow-[0_0_20px_rgba(234,179,8,0.4)]" />
-            <h2 className="text-3xl sm:text-6xl font-black italic uppercase mb-4 sm:mb-8 tracking-tighter text-white leading-none">
-              {g.matchResults[g.matchResults.length-1]?.winner === 'P1' ? 'PLAYER 1' : g.matchResults[g.matchResults.length-1]?.winner === 'P2' ? 'PLAYER 2' : 'DRAW'}
-              <div className="text-sm sm:text-2xl mt-2 text-slate-500 tracking-widest uppercase">{g.gameState === 'GAME_OVER' ? 'SERIES CHAMPION' : 'MATCH VICTORY'}</div>
-            </h2>
-            <button 
-              onClick={() => g.gameState === 'GAME_OVER' ? g.setGameState('TITLE') : g.nextRound()} 
-              className="w-full py-4 sm:py-6 bg-white text-slate-950 rounded-full font-black text-lg sm:text-2xl uppercase italic hover:bg-slate-100 transition-all active:scale-95 shadow-xl leading-none"
-            >
-              {g.gameState === 'GAME_OVER' ? 'Return to Title' : 'Start Next Match'}
-            </button>
-          </div>
-        </div>
-      )}
-      <style dangerouslySetInnerHTML={{ __html: `
-        .perspective-1000{perspective:1000px}
-        .transform-style-3d{transform-style:preserve-3d}
-        .backface-hidden{backface-visibility:hidden}
-        .rotate-y-180{transform:rotateY(180deg)}
-        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-        .animate-in { animation: fade-in 0.5s ease-out forwards; }
-      `}} />
-    </div>
-  );
-}
-
-// 既存のコンポーネントを流用するための定義
 const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner, onComplete }) => {
   const [rotation, setRotation] = useState(0);
   const [showResultText, setShowResultText] = useState(false);
@@ -612,34 +408,426 @@ const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner
   );
 };
 
-const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red' }> = ({ onSelect, player, color }) => {
-  const [options, setOptions] = useState<Card[][]>([]);
-  const [hoveredIdx, setHoveredIdx] = useState<number>(0);
-  useEffect(() => { setOptions(Array.from({ length: 5 }).map(() => generateDeck())); }, []);
-  if (options.length === 0) return null;
-  return (
-    <div className="w-full flex flex-col gap-6 animate-in fade-in duration-700 px-2">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-6">
-        {options.map((deck, idx) => (
-          <button key={idx} onMouseEnter={() => setHoveredIdx(idx)} onClick={() => onSelect(deck)} className={`relative flex flex-col items-center justify-center p-4 sm:p-8 rounded-2xl sm:rounded-3xl border-2 sm:border-4 transition-all duration-300 ${hoveredIdx === idx ? (color === 'blue' ? 'bg-blue-600/10 border-blue-500 scale-[1.02]' : 'bg-red-600/10 border-red-500 scale-[1.02]') : 'bg-slate-900/50 border-slate-800 hover:border-slate-600'}`}>
-            <div className={`text-[10px] sm:text-xs font-black mb-1 ${hoveredIdx === idx ? (color === 'blue' ? 'text-blue-400' : 'text-red-400') : 'text-slate-500'}`}>PATTERN 0{idx + 1}</div>
-            <div className="text-xl sm:text-3xl font-black italic tracking-tighter mb-4 text-white uppercase leading-none">SELECT <span className={color === 'blue' ? 'text-blue-500' : 'text-red-500'}>DECK</span></div>
-            <div className="space-y-1 w-full text-left opacity-70 group-hover:opacity-100 transition-opacity">
-              {deck.map((c, i) => (
-                <div key={i} className="flex justify-between text-[8px] sm:text-[10px] font-bold border-b border-slate-800 pb-0.5"><span className="text-slate-500 font-mono">Lv.{c.level}</span><span className="truncate max-w-[80px] sm:max-w-[120px] text-slate-300 uppercase">{c.name}</span></div>
-              ))}
+// --- Main App ---
+export default function App() {
+  const [gameState, setGameState] = useState<GameState>('TITLE');
+  const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
+  const [round, setRound] = useState(1);
+  const [p1Hand, setP1Hand] = useState<Card[]>([]);
+  const [p2Hand, setP2Hand] = useState<Card[]>([]);
+  const [board, setBoard] = useState<BoardTile[]>([]);
+  const [turn, setTurn] = useState<PlayerType>('P1');
+  const [selectedCardIdx, setSelectedCardIdx] = useState<number | null>(null);
+  const [selectingPlayer, setSelectingPlayer] = useState<PlayerType>('P1');
+  const [tossWinner, setTossWinner] = useState<PlayerType | null>(null);
+  const [activeEffect, setActiveEffect] = useState<string | null>(null);
+  const [settings, setSettings] = useState<GameSettings>({
+    elementalEnabled: true, sameEnabled: true, plusEnabled: true, cpuDifficulty: 'MID', pvpMode: false
+  });
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Resize Listener
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 1024);
+    handleResize(); // Init
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const initializeBoard = useCallback(() => {
+    const b: BoardTile[] = Array(9).fill(null).map(() => ({ card: null, element: null }));
+    if (!settings.elementalEnabled) return b;
+    const count = Math.floor(Math.random() * 4) + 1;
+    for (let i = 0; i < count; i++) {
+      const idx = Math.floor(Math.random() * 9);
+      if (!b[idx].element) b[idx].element = ELEMENTS[Math.floor(Math.random() * ELEMENTS.length)];
+    }
+    return b;
+  }, [settings.elementalEnabled]);
+
+  const scores = useMemo(() => {
+    let s1 = p1Hand.length, s2 = p2Hand.length;
+    board.forEach(t => { if (t.card?.owner === 'P1') s1++; if (t.card?.owner === 'P2') s2++; });
+    return [s1, s2];
+  }, [board, p1Hand, p2Hand]);
+
+  // Effects
+  const triggerEffect = (name: string) => {
+    setActiveEffect(name);
+    setTimeout(() => setActiveEffect(null), 1500);
+  };
+
+  const placeCard = useCallback((idx: number, hand: Card[], handIdx: number, owner: PlayerType) => {
+    if (board[idx].card || turn !== owner) return;
+    const nextBoard = board.map(tile => ({ ...tile }));
+    const card = hand[handIdx];
+    const stats = calculateStats(card, nextBoard[idx].element);
+    nextBoard[idx].card = { ...card, owner, modifiedStats: stats };
+
+    // --- RULE LOGIC ---
+    let flippedIndices: number[] = [];
+    let comboQueue: number[] = [];
+    const getNeighbors = (i: number) => [
+      { pos: i - 3, side: 0, oppSide: 3, active: i >= 3 },
+      { pos: i - 1, side: 1, oppSide: 2, active: i % 3 !== 0 },
+      { pos: i + 1, side: 2, oppSide: 1, active: i % 3 !== 2 },
+      { pos: i + 3, side: 3, oppSide: 0, active: i < 6 },
+    ];
+
+    // Same & Plus
+    let sameMatches: number[] = [];
+    let plusSums: Record<number, number[]> = {};
+    const neighbors = getNeighbors(idx);
+
+    neighbors.forEach(n => {
+      if (n.active) {
+        const neighborCard = nextBoard[n.pos].card;
+        if (neighborCard) {
+          const myVal = stats[n.side];
+          const oppStats = neighborCard.modifiedStats || neighborCard.stats;
+          const oppVal = oppStats[n.oppSide];
+          if (settings.sameEnabled && myVal === oppVal) sameMatches.push(n.pos);
+          if (settings.plusEnabled) {
+            const sum = myVal + oppVal;
+            if (!plusSums[sum]) plusSums[sum] = [];
+            plusSums[sum].push(n.pos);
+          }
+        }
+      }
+    });
+
+    if (settings.sameEnabled && sameMatches.length >= 2) {
+      triggerEffect('SAME');
+      sameMatches.forEach(pos => {
+        if (nextBoard[pos].card!.owner !== owner) {
+          nextBoard[pos].card!.owner = owner;
+          flippedIndices.push(pos);
+        }
+        comboQueue.push(pos);
+      });
+    }
+    if (settings.plusEnabled) {
+      Object.values(plusSums).forEach(indices => {
+        if (indices.length >= 2) {
+          triggerEffect('PLUS');
+          indices.forEach(pos => {
+            if (nextBoard[pos].card!.owner !== owner) {
+              nextBoard[pos].card!.owner = owner;
+              flippedIndices.push(pos);
+            }
+            comboQueue.push(pos);
+          });
+        }
+      });
+    }
+
+    // Basic Rule
+    neighbors.forEach(n => {
+      if (n.active) {
+        const neighborCard = nextBoard[n.pos].card;
+        if (neighborCard && neighborCard.owner !== owner) {
+          const myVal = stats[n.side];
+          const oppStats = neighborCard.modifiedStats || neighborCard.stats;
+          const oppVal = oppStats[n.oppSide];
+          if (myVal > oppVal) {
+            nextBoard[n.pos].card!.owner = owner;
+            flippedIndices.push(n.pos);
+          }
+        }
+      }
+    });
+
+    // Combo
+    while (comboQueue.length > 0) {
+      const cIdx = comboQueue.shift()!;
+      const cCard = nextBoard[cIdx].card!;
+      const cStats = cCard.modifiedStats || cCard.stats;
+      getNeighbors(cIdx).forEach(cn => {
+        if (cn.active) {
+          const target = nextBoard[cn.pos].card;
+          if (target && target.owner !== owner) {
+            const tStats = target.modifiedStats || target.stats;
+            if (cStats[cn.side] > tStats[cn.oppSide]) {
+              nextBoard[cn.pos].card!.owner = owner;
+              if (!flippedIndices.includes(cn.pos)) {
+                flippedIndices.push(cn.pos);
+                comboQueue.push(cn.pos);
+                triggerEffect('COMBO');
+              }
+            }
+          }
+        }
+      });
+    }
+
+    setBoard(nextBoard);
+    if (owner === 'P1') setP1Hand(prev => prev.filter((_, i) => i !== handIdx));
+    else setP2Hand(prev => prev.filter((_, i) => i !== handIdx));
+    setSelectedCardIdx(null);
+    setTurn(owner === 'P1' ? 'P2' : 'P1');
+  }, [board, turn, selectedCardIdx, p1Hand, p2Hand, settings]);
+
+  const handleDeckSelect = (deck: Card[]) => {
+    if (selectingPlayer === 'P1') {
+      setP1Hand(deck.map(c => ({ ...c, owner: 'P1' })));
+      // P1のカードIDリストを作成
+      const p1Ids = new Set(deck.map(c => c.id));
+      
+      if (settings.pvpMode) {
+        setSelectingPlayer('P2'); 
+        // P2にはP1のカードを選ばせない（DeckSelectにp1Idsを渡す）
+      } else { 
+        // CPUデッキ生成時もP1のカードを除外
+        setP2Hand(generateDeck(p1Ids).map(c => ({ ...c, owner: 'P2' })));
+        startGame();
+      }
+    } else {
+      setP2Hand(deck.map(c => ({ ...c, owner: 'P2' })));
+      startGame();
+    }
+  };
+
+  const startGame = () => {
+    setBoard(initializeBoard());
+    setTossWinner(Math.random() > 0.5 ? 'P1' : 'P2');
+    setGameState('COIN_TOSS');
+  };
+
+  // CPU AI Trigger
+  useEffect(() => {
+    if (!settings.pvpMode && gameState === 'PLAYING' && turn === 'P2' && p2Hand.length > 0) {
+      const timer = setTimeout(() => {
+        const { boardIdx, handIdx } = getBestMove(board, p2Hand, settings);
+        // Place Card by CPU
+        const card = p2Hand[handIdx];
+        // Note: 直接placeCardを呼べないので、ロジックを再実行（実運用ではリファクタリング推奨）
+        // ここでは簡易的に、placeCardと同じロジックをstate更新で行う
+        // しかしルール判定が複雑なため、selectedCardIdxの更新 -> useEffectでの発火パターンを利用するのが安全
+        // ただしP2の手札操作はUI的に見えないため、直接ロジックを実行する関数(placeCard)を呼びたいが
+        // placeCardはuseCallbackで依存関係があるため、ここでは呼び出しのみ行う
+        // 実際には placeCard(boardIdx, p2Hand, handIdx, 'P2') を呼び出す形にする
+        
+        // ※このuseEffect内からplaceCardを呼ぶと依存配列の警告が出るが、機能的には問題ない
+        // AIの思考時間として少し待つ
+        placeCard(boardIdx, p2Hand, handIdx, 'P2');
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [turn, gameState, p2Hand, settings, board, placeCard]); // placeCardを依存に追加
+
+  // Win/Loss Check
+  useEffect(() => {
+    if (gameState === 'PLAYING' && board.length > 0 && board.every(t => t.card)) {
+      const timer = setTimeout(() => {
+        const winner = scores[0] > scores[1] ? 'P1' : scores[0] < scores[1] ? 'P2' : 'DRAW';
+        const newResults = [...matchResults, { winner: winner as any, scores }];
+        setMatchResults(newResults);
+        
+        const p1Wins = newResults.filter(r => r.winner === 'P1').length;
+        const p2Wins = newResults.filter(r => r.winner === 'P2').length;
+        
+        if (newResults.length >= 3 || p1Wins >= 2 || p2Wins >= 2) {
+          setGameState('GAME_OVER');
+        } else {
+          setGameState('ROUND_END');
+        }
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [board, scores, gameState]);
+
+  const difficultyConfig = {
+    LOW: { label: 'Easy', color: 'text-emerald-400', border: 'border-emerald-900/50', icon: <CpuIcon size={20} /> },
+    MID: { label: 'Normal', color: 'text-blue-400', border: 'border-blue-900/50', icon: <CpuIcon size={20} /> },
+    HIGH: { label: 'Hard', color: 'text-red-400', border: 'border-red-900/50', icon: <CpuIcon size={20} /> },
+    EXPERT: { label: 'Expert', color: 'text-purple-400', border: 'border-purple-500/50', icon: <Sparkles size={20} /> },
+  };
+
+  // UI Render
+  if (gameState === 'TITLE') return (
+    <div className="w-full h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden relative">
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full animate-pulse" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700" />
+      
+      <div className="relative z-10 flex flex-col items-center max-w-4xl w-full">
+        <h1 className="text-6xl sm:text-9xl font-black italic mb-8 sm:mb-16 uppercase tracking-tighter drop-shadow-2xl">Triple <span className="text-blue-500">Triad</span></h1>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-12 w-full mb-12">
+          {/* Game Mode */}
+          <div className="space-y-4 text-left">
+            <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Users size={14} /> Game Mode</h3>
+            <button onClick={() => setSettings({ ...settings, pvpMode: false })} className={`w-full p-4 sm:p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${!settings.pvpMode ? 'bg-blue-600 border-blue-400 shadow-lg' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
+              <div className="flex items-center gap-4"><User size={20} /><span className="font-black italic uppercase">VS CPU</span></div>
+              {!settings.pvpMode && <CheckCircle2 size={20} />}
+            </button>
+            <button onClick={() => setSettings({ ...settings, pvpMode: true })} className={`w-full p-4 sm:p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${settings.pvpMode ? 'bg-purple-600 border-purple-400 shadow-lg' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
+              <div className="flex items-center gap-4"><Users size={20} /><span className="font-black italic uppercase">LOCAL PVP</span></div>
+              {settings.pvpMode && <CheckCircle2 size={20} />}
+            </button>
+          </div>
+
+          {/* Rules */}
+          <div className="space-y-4 text-left">
+            <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Settings2 size={14} /> Rule Settings</h3>
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-3 gap-3">
+                <button onClick={() => setSettings({...settings, elementalEnabled: !settings.elementalEnabled})} className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl border-2 transition-all ${settings.elementalEnabled ? 'bg-emerald-600/20 border-emerald-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
+                  <Zap size={18} className={settings.elementalEnabled ? 'text-emerald-400' : ''} />
+                  <span className="text-[10px] font-black uppercase mt-1">Elem</span>
+                </button>
+                <button onClick={() => setSettings({...settings, sameEnabled: !settings.sameEnabled})} className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl border-2 transition-all ${settings.sameEnabled ? 'bg-blue-600/20 border-blue-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
+                  <Layers size={18} className={settings.sameEnabled ? 'text-blue-400' : ''} />
+                  <span className="text-[10px] font-black uppercase mt-1">Same</span>
+                </button>
+                <button onClick={() => setSettings({...settings, plusEnabled: !settings.plusEnabled})} className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl border-2 transition-all ${settings.plusEnabled ? 'bg-amber-600/20 border-amber-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
+                  <PlusIcon size={18} className={settings.plusEnabled ? 'text-amber-400' : ''} />
+                  <span className="text-[10px] font-black uppercase mt-1">Plus</span>
+                </button>
+              </div>
+              
+              {!settings.pvpMode && (
+                <button 
+                  onClick={() => {
+                    const lvls: GameSettings['cpuDifficulty'][] = ['LOW', 'MID', 'HIGH', 'EXPERT'];
+                    setSettings({...settings, cpuDifficulty: lvls[(lvls.indexOf(settings.cpuDifficulty) + 1) % 4]});
+                  }} 
+                  className={`w-full p-4 sm:p-6 rounded-2xl border-2 flex items-center justify-between transition-all duration-300 bg-slate-900/50 hover:bg-slate-800/80 ${difficultyConfig[settings.cpuDifficulty].border}`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center bg-slate-800 ${difficultyConfig[settings.cpuDifficulty].color}`}>
+                      {difficultyConfig[settings.cpuDifficulty].icon}
+                    </div>
+                    <div>
+                      <div className={`font-black italic text-base sm:text-lg uppercase ${difficultyConfig[settings.cpuDifficulty].color}`}>CPU: {difficultyConfig[settings.cpuDifficulty].label}</div>
+                      <div className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Intelligence</div>
+                    </div>
+                  </div>
+                  <ChevronRight size={18} className="text-slate-600" />
+                </button>
+              )}
             </div>
-          </button>
-        ))}
-      </div>
-      <div className="hidden lg:flex h-[380px] bg-slate-900/40 border-t-2 border-slate-800 rounded-t-[4rem] p-10 justify-center items-end gap-6 overflow-hidden backdrop-blur-sm shrink-0">
-          {options[hoveredIdx].map((card, i) => (
-            <div key={`${hoveredIdx}-${card.id}-${i}`} className="w-40 flex flex-col transition-all duration-500 transform hover:-translate-y-4">
-               <div className="flex-1 min-h-0 flex items-end pb-2"><CardComponent card={{...card, owner: player as any}} small /></div>
-               <div className="mt-2 text-center shrink-0 leading-tight"><div className={`text-[10px] font-black ${color === 'blue' ? 'text-blue-500' : 'text-red-500'}`}>LEVEL {card.level}</div><div className="text-sm font-black text-white truncate px-1 uppercase">{card.name}</div></div>
-            </div>
-          ))}
+          </div>
+        </div>
+        <button onClick={() => { setRound(1); setMatchResults([]); setGameState('DECK_SELECT'); }} className="px-16 sm:px-24 py-5 sm:py-8 bg-white text-slate-950 rounded-full font-black text-xl sm:text-3xl italic uppercase hover:scale-110 transition-all active:scale-95 shadow-xl">Start Battle</button>
       </div>
     </div>
   );
-};
+
+  if (gameState === 'DECK_SELECT') return (
+    <div className="w-full h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans overflow-hidden">
+      <div className="h-full flex flex-col items-center overflow-y-auto pb-10 w-full">
+         <div className="mb-4 sm:mb-6 text-center shrink-0 pt-4">
+            <h2 className="text-2xl sm:text-4xl font-black italic uppercase text-white mb-1 leading-none">Deck Selection</h2>
+            <div className={`px-6 sm:px-10 py-1 sm:py-1.5 rounded-full inline-block font-black uppercase text-[10px] sm:text-xs tracking-widest shadow-xl ${selectingPlayer === 'P1' ? 'bg-blue-600' : 'bg-red-600'}`}>
+               {selectingPlayer === 'P1' ? 'PLAYER 1' : 'PLAYER 2'} CHOICE
+            </div>
+         </div>
+         <div className="flex-1 w-full max-w-7xl min-h-0">
+            {/* P2選択時は P1 のカードを除外リストとして渡す */}
+            <DeckSelect 
+              key={selectingPlayer} 
+              onSelect={handleDeckSelect} 
+              player={selectingPlayer} 
+              color={selectingPlayer === 'P1' ? 'blue' : 'red'} 
+              excludeIds={selectingPlayer === 'P2' ? new Set(p1Hand.map(c => c.id)) : new Set()}
+              isMobile={isMobile}
+            />
+         </div>
+      </div>
+    </div>
+  );
+
+  if (gameState === 'COIN_TOSS') return (
+    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans">
+       {tossWinner && <CoinToss winner={tossWinner === 'P1' ? 'PLAYER 1' : (settings.pvpMode ? 'PLAYER 2' : 'CPU')} onComplete={() => setGameState('PLAYING')} />}
+    </div>
+  );
+
+  return (
+    <div className="w-full h-screen bg-slate-950 text-white flex flex-col p-2 lg:p-6 font-sans overflow-hidden">
+      <header className="flex justify-between items-center mb-2 lg:mb-6 border-b border-slate-900 pb-2 lg:pb-4 shrink-0 z-50">
+        <h1 className="text-lg lg:text-3xl font-black italic uppercase flex gap-2 lg:gap-4 items-center tracking-tighter">
+          <Swords className="text-blue-500" size={isMobile ? 24 : 32} /> Triple Triad
+        </h1>
+        <div className="flex gap-4 lg:gap-12 items-center">
+          <div className="hidden sm:flex gap-2">
+            {[...Array(3)].map((_, i) => {
+              const res = matchResults[i];
+              return (
+                <div key={i} className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${res ? (res.winner === 'P1' ? 'bg-blue-600 border-blue-400' : 'bg-red-600 border-red-400') : 'bg-slate-900 border-slate-800'}`}>
+                  {res ? (res.winner === 'P1' ? <CheckCircle2 size={16} /> : <XCircle size={16} />) : <span className="text-[10px] text-slate-700">{i+1}</span>}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex gap-4 lg:gap-6 text-2xl lg:text-5xl font-black italic tracking-tighter leading-none">
+            <div className="text-blue-500">{scores[0]}</div>
+            <div className="text-slate-700">-</div>
+            <div className="text-red-500">{scores[1]}</div>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 relative min-h-0 w-full flex flex-col">
+        {['PLAYING', 'ROUND_END', 'GAME_OVER'].includes(gameState) && (
+          <div className="h-full w-full flex flex-col lg:flex-row gap-4 lg:gap-12 justify-center animate-in fade-in duration-500 overflow-hidden">
+            {/* Player 2 Hand (Mobile: Top, Desktop: Right) */}
+            <div className="w-full lg:w-64 shrink-0 order-1 lg:order-3">
+              <HandComp hand={p2Hand} score={scores[1]} isTurn={turn === 'P2'} color="red" selectedIdx={turn === 'P2' && settings.pvpMode ? selectedCardIdx : null} onSelect={setSelectedCardIdx} isMobile={isMobile} />
+            </div>
+            
+            {/* Board Area (Center) */}
+            <div className="flex-1 flex flex-col items-center justify-center min-h-0 order-2">
+              <div className={`px-6 lg:px-12 py-1 lg:py-2 rounded-full mb-2 lg:mb-6 font-black uppercase text-xs lg:text-lg shadow-2xl border-2 z-50 transition-colors ${turn === 'P1' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-red-600/20 border-red-500 text-red-400'}`}>
+                {turn === 'P1' ? "Player 1 Turn" : (settings.pvpMode ? "Player 2 Turn" : "CPU Thinking...")}
+              </div>
+              <div className="w-full max-w-[450px] aspect-square">
+                <BoardComp 
+                  board={board} 
+                  onPlace={(idx) => selectedCardIdx !== null && placeCard(idx, turn === 'P1' ? p1Hand : p2Hand, selectedCardIdx, turn)} 
+                  canPlace={selectedCardIdx !== null && (settings.pvpMode || turn === 'P1')} 
+                  selectedCardAttr={selectedCardIdx !== null ? (turn === 'P1' ? p1Hand[selectedCardIdx].attr : p2Hand[selectedCardIdx].attr) : null} 
+                />
+              </div>
+            </div>
+
+            {/* Player 1 Hand (Mobile: Bottom, Desktop: Left) */}
+            <div className="w-full lg:w-64 shrink-0 order-3 lg:order-1">
+              <HandComp hand={p1Hand} score={scores[0]} isTurn={turn === 'P1'} color="blue" selectedIdx={turn === 'P1' ? selectedCardIdx : null} onSelect={setSelectedCardIdx} isMobile={isMobile} />
+            </div>
+          </div>
+        )}
+      </main>
+
+      {['ROUND_END', 'GAME_OVER'].includes(gameState) && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex items-center justify-center z-50 p-6 lg:p-12">
+          <div className="bg-slate-900 border-4 border-slate-800 p-8 lg:p-16 rounded-[2rem] lg:rounded-[4rem] text-center max-w-2xl w-full shadow-2xl animate-in zoom-in-95 duration-300">
+            <Trophy className="w-12 h-12 lg:w-20 lg:h-20 text-yellow-500 mx-auto mb-4 lg:mb-6 drop-shadow-[0_0_20px_rgba(234,179,8,0.4)]" />
+            <h2 className="text-3xl lg:text-6xl font-black italic uppercase mb-4 lg:mb-8 tracking-tighter text-white leading-none">
+              {matchResults[matchResults.length-1]?.winner === 'P1' ? 'PLAYER 1' : matchResults[matchResults.length-1]?.winner === 'P2' ? 'PLAYER 2' : 'DRAW'}
+              <div className="text-sm lg:text-2xl mt-2 text-slate-500 tracking-widest uppercase">{gameState === 'GAME_OVER' ? 'SERIES CHAMPION' : 'MATCH VICTORY'}</div>
+            </h2>
+            <button 
+              onClick={() => {
+                if (gameState === 'GAME_OVER') { setRound(1); setMatchResults([]); setGameState('TITLE'); }
+                else { setRound(r => r + 1); setSelectingPlayer('P1'); setGameState('DECK_SELECT'); }
+              }} 
+              className="w-full py-4 lg:py-6 bg-white text-slate-950 rounded-full font-black text-lg lg:text-2xl uppercase italic hover:bg-slate-100 transition-all active:scale-95 shadow-xl leading-none"
+            >
+              {gameState === 'GAME_OVER' ? 'Return to Title' : 'Start Next Match'}
+            </button>
+          </div>
+        </div>
+      )}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .perspective-1000{perspective:1000px}
+        .transform-style-3d{transform-style:preserve-3d}
+        .backface-hidden{backface-visibility:hidden}
+        .rotate-y-180{transform:rotateY(180deg)}
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .animate-in { animation: fade-in 0.5s ease-out forwards; }
+        .animate-effect-text { animation: effect-text 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      `}} />
+    </div>
+  );
+}
