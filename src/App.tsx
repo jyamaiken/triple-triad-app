@@ -134,7 +134,7 @@ const getBestMove = (board: BoardTile[], hand: Card[], settings: GameSettings): 
 
 // --- Components ---
 
-const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHovered?: boolean; onClick?: () => void; small?: boolean; side?: 'left' | 'right'; isMobile?: boolean }> = ({ card, isSelected, isHovered, onClick, small, side = 'left', isMobile = false }) => {
+const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHovered?: boolean; onClick?: () => void; small?: boolean; side?: 'left' | 'right'; isLandscape?: boolean }> = ({ card, isSelected, isHovered, onClick, small, side = 'left', isLandscape = false }) => {
   const [isFlipping, setIsFlipping] = useState(false);
   const [displayOwner, setDisplayOwner] = useState(card?.owner);
   const prevOwnerRef = useRef(card?.owner);
@@ -201,10 +201,14 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
   let translateClass = '';
   if (onClick) {
     if (isSelected) {
-      // モバイルなら上、PCなら左右
-      translateClass = isMobile ? '-translate-y-[60%] scale-105' : (side === 'left' ? '-translate-x-[60%] scale-95' : 'translate-x-[60%] scale-95');
+      // 縦向きなら上へ、横向きなら左右へスライド
+      translateClass = !isLandscape 
+        ? '-translate-y-[60%] scale-105' 
+        : (side === 'left' ? '-translate-x-[60%] scale-95' : 'translate-x-[60%] scale-95');
     } else if (isHovered) {
-      translateClass = isMobile ? '-translate-y-[20%] scale-105' : (side === 'left' ? 'hover:-translate-x-[40%] scale-110' : 'hover:translate-x-[40%] scale-110');
+      translateClass = !isLandscape
+        ? '-translate-y-[20%] scale-105'
+        : (side === 'left' ? 'hover:-translate-x-[40%] scale-110' : 'hover:translate-x-[40%] scale-110');
     }
   }
 
@@ -281,25 +285,25 @@ const BoardComp: React.FC<{ board: BoardTile[]; onPlace: (idx: number) => void; 
   );
 };
 
-const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selectedIdx: number | null; onSelect: (idx: number) => void; color: 'blue' | 'red'; isMobile: boolean }> = ({ hand, score, isTurn, selectedIdx, onSelect, color, isMobile }) => {
+const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selectedIdx: number | null; onSelect: (idx: number) => void; color: 'blue' | 'red'; isLandscape: boolean }> = ({ hand, score, isTurn, selectedIdx, onSelect, color, isLandscape }) => {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const isP1 = color === 'blue';
   
+  // 縦向き: 横並び手札 / 横向き: 縦並び手札
   return (
-    // モバイル: 横並び、PC: 縦並び
-    <div className={`flex ${isMobile ? 'flex-row w-full h-20 sm:h-28' : 'flex-col w-32 sm:w-48 h-full'} gap-2 sm:gap-4 relative shrink-0`}>
-      <div className={`p-2 sm:p-4 rounded-xl sm:rounded-2xl border-2 shadow-lg flex ${isMobile ? 'flex-col items-center justify-center min-w-[3rem]' : 'justify-between items-center'} z-20 shrink-0 ${isP1 ? 'bg-blue-900/30 border-blue-500/50' : 'bg-red-900/30 border-red-500/50'}`}>
-        <div className={`flex flex-col ${isMobile ? 'text-center' : 'leading-tight'}`}>
+    <div className={`flex ${!isLandscape ? 'flex-row w-full h-24 sm:h-32' : 'flex-col w-32 sm:w-48 h-full'} gap-2 sm:gap-4 relative shrink-0`}>
+      <div className={`p-2 sm:p-4 rounded-xl sm:rounded-2xl border-2 shadow-lg flex ${!isLandscape ? 'flex-col items-center justify-center min-w-[3rem]' : 'justify-between items-center'} z-20 shrink-0 ${isP1 ? 'bg-blue-900/30 border-blue-500/50' : 'bg-red-900/30 border-red-500/50'}`}>
+        <div className={`flex flex-col ${!isLandscape ? 'text-center' : 'leading-tight'}`}>
           <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-white/60 hidden sm:block">{isP1 ? 'P1' : 'P2'}</span>
           <span className={`text-xl sm:text-3xl font-black italic ${isP1 ? 'text-blue-400' : 'text-red-400'}`}>{score}</span>
         </div>
-        <div className={`${isMobile ? 'w-full h-1 mt-1' : 'w-2 h-8 lg:w-3 lg:h-12'} rounded-full ${isTurn ? (isP1 ? 'bg-blue-500 animate-pulse' : 'bg-red-500 animate-pulse') : 'bg-slate-700'}`} />
+        <div className={`${!isLandscape ? 'w-full h-1 mt-1' : 'w-2 h-8 lg:w-3 lg:h-12'} rounded-full ${isTurn ? (isP1 ? 'bg-blue-500 animate-pulse' : 'bg-red-500 animate-pulse') : 'bg-slate-700'}`} />
       </div>
-      <div className={`flex-1 flex ${isMobile ? 'flex-row' : 'flex-col'} gap-1 min-h-0 relative items-end`}>
+      <div className={`flex-1 flex ${!isLandscape ? 'flex-row' : 'flex-col'} gap-1 min-h-0 relative items-end`}>
         {hand.map((card, i) => (
           <div 
             key={`${card.id}-${i}`} 
-            className={`flex-1 ${isMobile ? 'h-full aspect-[3/4]' : 'h-[18%] w-full'} relative transition-all duration-300`}
+            className={`flex-1 ${!isLandscape ? 'h-full aspect-[3/4]' : 'h-[18%] w-full'} relative transition-all duration-300`}
             style={{ zIndex: hoveredIdx === i ? 50 : (selectedIdx === i ? 40 : 10) }}
             onMouseEnter={() => setHoveredIdx(i)}
             onMouseLeave={() => setHoveredIdx(null)}
@@ -309,53 +313,20 @@ const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selecte
               isSelected={selectedIdx === i} 
               isHovered={hoveredIdx === i}
               side={isP1 ? 'left' : 'right'} 
-              isMobile={isMobile}
+              isMobile={!isLandscape}
               onClick={() => isTurn && onSelect(i)} 
             />
           </div>
         ))}
         {[...Array(Math.max(0, 5 - hand.length))].map((_, i) => (
-          <div key={`empty-${i}`} className={`flex-1 ${isMobile ? 'h-full aspect-[3/4]' : 'h-[18%] w-full'} opacity-10 pointer-events-none`}><CardComponent card={null} isMobile={isMobile} /></div>
+          <div key={`empty-${i}`} className={`flex-1 ${!isLandscape ? 'h-full aspect-[3/4]' : 'h-[18%] w-full'} opacity-10 pointer-events-none`}><CardComponent card={null} /></div>
         ))}
       </div>
     </div>
   );
 };
 
-// ... CoinToss & DeckSelect (前回の修正を維持)
-const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner, onComplete }) => {
-  const [rotation, setRotation] = useState(0);
-  const [showResultText, setShowResultText] = useState(false);
-  useEffect(() => {
-    const spins = 6 + Math.floor(Math.random() * 3);
-    const timer = setTimeout(() => {
-      setRotation(360 * spins + (winner === 'PLAYER 1' ? 0 : 180));
-      setTimeout(() => setShowResultText(true), 3800);
-      setTimeout(onComplete, 5500);
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [winner, onComplete]);
-  return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl z-50 p-4">
-      <div className="mb-8 sm:mb-16 text-center animate-in fade-in duration-500">
-        <h2 className="text-3xl sm:text-5xl font-black italic tracking-[0.2em] text-white uppercase mb-4 leading-none">Coin Toss</h2>
-        <p className="text-slate-400 font-black tracking-widest uppercase text-[10px] sm:text-sm leading-none">Determining the First Turn...</p>
-      </div>
-      <div className="relative w-48 h-48 sm:w-72 sm:h-72 perspective-1000">
-        <div className="w-full h-full relative transition-transform duration-[4000ms] ease-in-out transform-style-3d" style={{ transform: `rotateY(${rotation}deg)` }}>
-          <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-blue-400 bg-gradient-to-br from-blue-500 to-blue-800 flex flex-col items-center justify-center shadow-2xl backface-hidden">
-            <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P1</span>
-          </div>
-          <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-red-500 bg-gradient-to-br from-red-600 to-red-900 flex flex-col items-center justify-center shadow-2xl backface-hidden rotate-y-180">
-            <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P2</span>
-          </div>
-        </div>
-      </div>
-      <div className="mt-12 sm:mt-20 h-16">{showResultText && <div className="animate-in slide-in-from-bottom-4 zoom-in duration-700 px-8 py-3 rounded-full border-4 font-black italic text-xl sm:text-3xl text-white uppercase">{winner} START</div>}</div>
-    </div>
-  );
-};
-
+// ... DeckSelect & CoinToss (前回の修正を維持) ...
 const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red'; excludeIds: Set<number>; isMobile: boolean }> = ({ onSelect, player, color, excludeIds, isMobile }) => {
   const [options, setOptions] = useState<Card[][]>([]);
   const [previewIdx, setPreviewIdx] = useState<number>(0);
@@ -366,7 +337,6 @@ const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; c
   }, [excludeIds]);
 
   const handleClick = (deck: Card[], idx: number) => {
-    // 常に2段階タップ（プレビュー -> 決定）
     if (previewIdx === idx) {
       onSelect(deck);
     } else {
@@ -420,7 +390,40 @@ const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; c
   );
 };
 
-// --- Main Logic ---
+const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner, onComplete }) => {
+  const [rotation, setRotation] = useState(0);
+  const [showResultText, setShowResultText] = useState(false);
+  useEffect(() => {
+    const spins = 10 + Math.floor(Math.random() * 5); // 10〜14回転
+    const timer = setTimeout(() => {
+      setRotation(360 * spins + (winner === 'PLAYER 1' ? 0 : 180));
+      setTimeout(() => setShowResultText(true), 2800);
+      setTimeout(onComplete, 4500);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [winner, onComplete]);
+  return (
+    <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl z-50 p-4">
+      <div className="mb-8 sm:mb-16 text-center animate-in fade-in duration-500">
+        <h2 className="text-3xl sm:text-5xl font-black italic tracking-[0.2em] text-white uppercase mb-4 leading-none">Coin Toss</h2>
+        <p className="text-slate-400 font-black tracking-widest uppercase text-[10px] sm:text-sm leading-none">Determining the First Turn...</p>
+      </div>
+      <div className="relative w-48 h-48 sm:w-72 sm:h-72 perspective-1000">
+        <div className="w-full h-full relative transition-transform duration-[3000ms] cubic-bezier(0.25, 1, 0.5, 1) transform-style-3d" style={{ transform: `rotateY(${rotation}deg)` }}>
+          <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-blue-400 bg-gradient-to-br from-blue-500 to-blue-800 flex flex-col items-center justify-center shadow-2xl backface-hidden">
+            <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P1</span>
+          </div>
+          <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-red-500 bg-gradient-to-br from-red-600 to-red-900 flex flex-col items-center justify-center shadow-2xl backface-hidden rotate-y-180">
+            <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P2</span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-12 sm:mt-20 h-16">{showResultText && <div className="animate-in slide-in-from-bottom-4 zoom-in duration-700 px-8 py-3 rounded-full border-4 font-black italic text-xl sm:text-3xl text-white uppercase">{winner} START</div>}</div>
+    </div>
+  );
+};
+
+// --- Main Logic Hook ---
 const useGame = () => {
   const [gameState, setGameState] = useState<GameState>('TITLE');
   const [round, setRound] = useState(1);
@@ -451,10 +454,13 @@ const useGame = () => {
   const handleDeckSelect = (deck: Card[]) => {
     if (selectingPlayer === 'P1') {
       setP1Hand(deck.map(c => ({ ...c, owner: 'P1' })));
+      // P1のカードIDリストを作成
       const p1Ids = new Set(deck.map(c => c.id));
+      
       if (settings.pvpMode) {
         setSelectingPlayer('P2'); 
       } else { 
+        // CPUデッキ生成時もP1のカードを除外
         setP2Hand(generateDeck(p1Ids).map(c => ({ ...c, owner: 'P2' })));
         startGame();
       }
@@ -482,6 +488,7 @@ const useGame = () => {
     const stats = calculateStats(card, nextBoard[idx].element);
     nextBoard[idx].card = { ...card, owner, modifiedStats: stats };
 
+    // --- RULE LOGIC ---
     let flippedIndices: number[] = [];
     let comboQueue: number[] = [];
     const getNeighbors = (i: number) => [
@@ -491,6 +498,7 @@ const useGame = () => {
       { pos: i + 3, side: 3, oppSide: 0, active: i < 6 },
     ];
 
+    // Same & Plus
     let sameMatches: number[] = [];
     let plusSums: Record<number, number[]> = {};
     const neighbors = getNeighbors(idx);
@@ -610,17 +618,12 @@ const useGame = () => {
 // --- Main App ---
 export default function App() {
   const g = useGame();
-  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
+  const [isLandscape, setIsLandscape] = useState(false);
 
-  const difficultyConfig = {
-    LOW: { label: 'Easy', color: 'text-emerald-400', border: 'border-emerald-900/50', icon: <CpuIcon size={20} /> },
-    MID: { label: 'Normal', color: 'text-blue-400', border: 'border-blue-900/50', icon: <CpuIcon size={20} /> },
-    HIGH: { label: 'Hard', color: 'text-red-400', border: 'border-red-900/50', icon: <CpuIcon size={20} /> },
-    EXPERT: { label: 'Expert', color: 'text-purple-400', border: 'border-purple-500/50', icon: <Sparkles size={20} /> },
-  };
-
+  // Resize Check
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 1024);
+    const handleResize = () => setIsLandscape(window.innerWidth > window.innerHeight);
+    handleResize(); // Init
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -635,16 +638,24 @@ export default function App() {
     }
   }, [g.turn, g.gameState, g.p2Hand, g.settings, g.board, g.placeCard]);
 
-  // ... (TITLE, DECK_SELECT, COIN_TOSS, MAIN UI - logic is now integrated)
-  
+  const difficultyConfig = {
+    LOW: { label: 'Easy', color: 'text-emerald-400', border: 'border-emerald-900/50', icon: <CpuIcon size={20} /> },
+    MID: { label: 'Normal', color: 'text-blue-400', border: 'border-blue-900/50', icon: <CpuIcon size={20} /> },
+    HIGH: { label: 'Hard', color: 'text-red-400', border: 'border-red-900/50', icon: <CpuIcon size={20} /> },
+    EXPERT: { label: 'Expert', color: 'text-purple-400', border: 'border-purple-500/50', icon: <Sparkles size={20} /> },
+  };
+
+  // UI RENDER
   if (g.gameState === 'TITLE') return (
-    <div className="w-full h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden relative">
+    <div className="fixed inset-0 w-full h-full bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden text-center">
+      {/* Background Effects */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full animate-pulse" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700" />
       
       <div className="relative z-10 flex flex-col items-center max-w-4xl w-full">
-        <h1 className="text-6xl sm:text-9xl font-black italic mb-8 sm:mb-16 uppercase tracking-tighter drop-shadow-2xl">Triple <span className="text-blue-500">Triad</span></h1>
+        <h1 className="text-6xl lg:text-9xl font-black italic mb-8 lg:mb-16 uppercase tracking-tighter drop-shadow-2xl">Triple <span className="text-blue-500">Triad</span></h1>
         
+        {/* Settings Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-12 w-full mb-12">
           {/* Game Mode */}
           <div className="space-y-4 text-left">
@@ -707,7 +718,7 @@ export default function App() {
   );
 
   if (g.gameState === 'DECK_SELECT') return (
-    <div className="w-full h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans overflow-hidden">
+    <div className="fixed inset-0 w-full h-full bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans overflow-hidden">
       <div className="h-full flex flex-col items-center overflow-y-auto pb-10 w-full">
          <div className="mb-4 sm:mb-6 text-center shrink-0 pt-4">
             <h2 className="text-2xl sm:text-4xl font-black italic uppercase text-white mb-1 leading-none">Deck Selection</h2>
@@ -722,7 +733,7 @@ export default function App() {
               player={g.selectingPlayer} 
               color={g.selectingPlayer === 'P1' ? 'blue' : 'red'} 
               excludeIds={g.selectingPlayer === 'P2' ? new Set(g.p1Hand.map(c => c.id)) : new Set()}
-              isMobile={isMobile}
+              isMobile={!isLandscape}
             />
          </div>
       </div>
@@ -736,10 +747,11 @@ export default function App() {
   );
 
   return (
-    <div className="w-full h-screen bg-slate-950 text-white flex flex-col p-2 lg:p-6 font-sans overflow-hidden">
+    // fixed inset-0 で100dvh対応 (iOSアドレスバー対策)
+    <div className="fixed inset-0 w-full h-full bg-slate-950 text-white flex flex-col p-2 lg:p-6 font-sans overflow-hidden supports-[height:100dvh]:h-[100dvh]">
       <header className="flex justify-between items-center mb-2 lg:mb-6 border-b border-slate-900 pb-2 lg:pb-4 shrink-0 z-50">
         <h1 className="text-lg lg:text-3xl font-black italic uppercase flex gap-2 lg:gap-4 items-center tracking-tighter">
-          <Swords className="text-blue-500" size={isMobile ? 24 : 32} /> Triple Triad
+          <Swords className="text-blue-500" size={!isLandscape ? 24 : 32} /> Triple Triad
         </h1>
         <div className="flex gap-4 lg:gap-12 items-center">
           <div className="hidden sm:flex gap-2">
@@ -760,18 +772,23 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 relative min-h-0 w-full flex flex-col">
+      {/* Main Game Area: 横向きなら flex-row, 縦向きなら flex-col */}
+      <main className={`flex-1 relative min-h-0 w-full flex ${isLandscape ? 'flex-row' : 'flex-col'} justify-between items-center gap-4`}>
         {['PLAYING', 'ROUND_END', 'GAME_OVER'].includes(g.gameState) && (
-          <div className="h-full w-full flex flex-col lg:flex-row gap-4 lg:gap-12 justify-center animate-in fade-in duration-500 overflow-hidden">
-            <div className="w-full lg:w-64 shrink-0 order-1 lg:order-3">
-              <HandComp hand={g.p2Hand} score={g.scores[1]} isTurn={g.turn === 'P2'} color="red" selectedIdx={g.turn === 'P2' && g.settings.pvpMode ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isMobile={isMobile} />
+          <>
+            {/* P2 Hand (Top/Right) */}
+            <div className={`${isLandscape ? 'w-48 h-full order-3' : 'w-full h-24 shrink-0 order-1'}`}>
+              <HandComp hand={g.p2Hand} score={g.scores[1]} isTurn={g.turn === 'P2'} color="red" selectedIdx={g.turn === 'P2' && g.settings.pvpMode ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isMobile={!isLandscape} />
             </div>
             
-            <div className="flex-1 flex flex-col items-center justify-center min-h-0 order-2">
+            {/* Board Area (Center) */}
+            <div className={`flex-1 flex flex-col items-center justify-center min-h-0 order-2 relative ${isLandscape ? 'h-full' : 'w-full'}`}>
               <div className={`px-6 lg:px-12 py-1 lg:py-2 rounded-full mb-2 lg:mb-6 font-black uppercase text-xs lg:text-lg shadow-2xl border-2 z-50 transition-colors ${g.turn === 'P1' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-red-600/20 border-red-500 text-red-400'}`}>
                 {g.turn === 'P1' ? "Player 1 Turn" : (g.settings.pvpMode ? "Player 2 Turn" : "CPU Thinking...")}
               </div>
-              <div className="w-full max-w-[450px] aspect-square">
+              
+              {/* Board Container: 縦横どちらでも画面内に収まるように制限 */}
+              <div className={`aspect-square flex items-center justify-center ${isLandscape ? 'h-full max-h-[80vh]' : 'w-full max-w-[80vw]'}`}>
                 <BoardComp 
                   board={g.board} 
                   onPlace={(idx) => g.selectedCardIdx !== null && g.placeCard(idx, g.turn === 'P1' ? g.p1Hand : g.p2Hand, g.selectedCardIdx, g.turn)} 
@@ -782,10 +799,11 @@ export default function App() {
               </div>
             </div>
 
-            <div className="w-full lg:w-64 shrink-0 order-3 lg:order-1">
-              <HandComp hand={g.p1Hand} score={g.scores[0]} isTurn={g.turn === 'P1'} color="blue" selectedIdx={g.turn === 'P1' ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isMobile={isMobile} />
+            {/* P1 Hand (Bottom/Left) */}
+            <div className={`${isLandscape ? 'w-48 h-full order-1' : 'w-full h-24 shrink-0 order-3'}`}>
+              <HandComp hand={g.p1Hand} score={g.scores[0]} isTurn={g.turn === 'P1'} color="blue" selectedIdx={g.turn === 'P1' ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isMobile={!isLandscape} />
             </div>
-          </div>
+          </>
         )}
       </main>
 
@@ -798,7 +816,10 @@ export default function App() {
               <div className="text-sm lg:text-2xl mt-2 text-slate-500 tracking-widest uppercase">{g.gameState === 'GAME_OVER' ? 'SERIES CHAMPION' : 'MATCH VICTORY'}</div>
             </h2>
             <button 
-              onClick={() => g.gameState === 'GAME_OVER' ? g.setGameState('TITLE') : g.nextRound()} 
+              onClick={() => {
+                if (g.gameState === 'GAME_OVER') { g.setRound(1); g.setMatchResults([]); g.setGameState('TITLE'); }
+                else { g.setRound(r => r + 1); g.setSelectingPlayer('P1'); g.setGameState('DECK_SELECT'); }
+              }} 
               className="w-full py-4 lg:py-6 bg-white text-slate-950 rounded-full font-black text-lg lg:text-2xl uppercase italic hover:bg-slate-100 transition-all active:scale-95 shadow-xl leading-none"
             >
               {g.gameState === 'GAME_OVER' ? 'Return to Title' : 'Start Next Match'}
@@ -813,7 +834,7 @@ export default function App() {
         .rotate-y-180{transform:rotateY(180deg)}
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
         .animate-in { animation: fade-in 0.5s ease-out forwards; }
-        .overflow-y-auto::-webkit-scrollbar { display: none; } .overflow-y-auto { -ms-overflow-style: none; scrollbar-width: none; }
+        .animate-effect-text { animation: effect-text 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       `}} />
     </div>
   );
