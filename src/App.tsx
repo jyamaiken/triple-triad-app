@@ -11,6 +11,7 @@ import CARD_DATA_RAW from './data/cards.json';
 // --- Types ---
 export type PlayerType = 'P1' | 'P2';
 export type GameState = 'TITLE' | 'DECK_SELECT' | 'COIN_TOSS' | 'PLAYING' | 'ROUND_END' | 'GAME_OVER';
+export type EffectType = 'SAME' | 'PLUS' | 'COMBO' | null;
 
 export interface GameSettings {
   elementalEnabled: boolean;
@@ -53,11 +54,12 @@ const CARD_DATA = CARD_DATA_RAW as Card[];
 
 function resolveImgPath(path: string) {
   if (!path) return "";
-  if (path.startsWith('http')) return path;
-  const env = (import.meta as any).env;
-  const baseUrl = (env?.BASE_URL || '/').replace(/\/$/, '');
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${baseUrl}${normalizedPath}`;
+  if (path.startsWith('http')) return path; // 外部URLならそのまま
+  
+  // ローカルパスの場合、先頭に / をつけてルート相対パスにする
+  // public/images/cards/1.png -> /images/cards/1.png
+  const cleanPath = path.replace(/^\.?\//, ''); // 先頭の ./ や / を削除
+  return `/${cleanPath}`;
 }
 
 function generateDeck(excludeIds?: Set<number>): Card[] {
@@ -143,7 +145,7 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
 
   useEffect(() => {
     if (!card) return;
-    // IDが変わった場合（デッキ選択での表示切り替えなど）は即座に反映
+    // IDが変わった場合は即座に反映
     if (card.id !== prevCardIdRef.current) {
       setDisplayOwner(card.owner);
       setIsFlipping(false);
@@ -151,7 +153,7 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
       prevCardIdRef.current = card.id;
       return;
     }
-    // 所有権が変わった場合（対戦中の反転）はアニメーション
+    // 所有権が変わった場合はアニメーション
     if (card.owner !== prevOwnerRef.current) {
       if (prevOwnerRef.current) {
         setIsFlipping(true);
@@ -210,7 +212,7 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
     }
   }
 
-  const transformOrigin = side === 'left' ? 'origin-right' : 'origin-left'; // モバイルでも左右起点で問題なし（縦並びのため）
+  const transformOrigin = side === 'left' ? 'origin-right' : 'origin-left';
 
   return (
     <div 
@@ -220,7 +222,15 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
       <div className={`relative w-full h-full transition-transform duration-500 transform-style-3d ${isFlipping ? 'rotate-y-180' : ''}`}>
         <div className={`absolute inset-0 w-full h-full rounded-xl bg-gradient-to-br ${ownerClass} overflow-hidden shadow-lg backface-hidden`}>
           <div className="absolute inset-0 bg-slate-900">
-             <img src={resolveImgPath(card.img)} alt={card.name} className="w-full h-full object-cover opacity-80 pointer-events-none" />
+             <img 
+               src={resolveImgPath(card.img)} 
+               alt={card.name} 
+               className="w-full h-full object-cover opacity-80 pointer-events-none" 
+               onError={(e) => {
+                 // 画像読み込みエラー時のフォールバック（デバッグ用）
+                 e.currentTarget.style.display = 'none';
+               }}
+             />
              <div className="absolute inset-0 bg-black/10" />
           </div>
 
@@ -251,7 +261,16 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
   );
 };
 
-const BoardComp: React.FC<{ board: BoardTile[]; onPlace: (idx: number) => void; canPlace: boolean; selectedCardAttr: string | null; effect: string | null }> = ({ board, onPlace, canPlace, selectedCardAttr, effect }) => {
+const BoardComp: React.FC<{ board: BoardTile[]; onPlace: (idx: number) => void; canPlace: boolean; selectedCardAttr: string | null; effect: EffectType }> = ({ board, onPlace, canPlace, selectedCardAttr, effect }) => {
+  const getEffectStyle = (type: EffectType) => {
+    switch (type) {
+      case 'SAME': return 'text-cyan-400 drop-shadow-[0_0_30px_rgba(34,211,238,1)] stroke-cyan-800';
+      case 'PLUS': return 'text-red-500 drop-shadow-[0_0_30px_rgba(239,68,68,1)] stroke-red-900';
+      case 'COMBO': return 'text-yellow-400 drop-shadow-[0_0_40px_rgba(250,204,21,1)] stroke-yellow-700';
+      default: return '';
+    }
+  };
+
   return (
     <div className="w-full aspect-square bg-slate-900/80 p-2 sm:p-4 rounded-[2rem] sm:rounded-[2.5rem] border-4 border-slate-800 grid grid-cols-3 grid-rows-3 gap-1.5 sm:gap-3 shadow-2xl relative overflow-visible">
       {board.map((tile, i) => (
@@ -267,7 +286,7 @@ const BoardComp: React.FC<{ board: BoardTile[]; onPlace: (idx: number) => void; 
       ))}
       {effect && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center pointer-events-none">
-           <div className="text-6xl sm:text-9xl font-black italic text-yellow-400 drop-shadow-[0_0_30px_rgba(250,204,21,1)] uppercase tracking-tighter animate-bounce stroke-black" style={{ WebkitTextStroke: '2px black' }}>{effect}!</div>
+           <div className={`text-6xl sm:text-9xl font-black italic uppercase tracking-tighter animate-bounce ${getEffectStyle(effect)}`} style={{ WebkitTextStroke: '2px black' }}>{effect}!</div>
         </div>
       )}
     </div>
@@ -315,7 +334,7 @@ const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selecte
 
 const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red'; excludeIds: Set<number>; isMobile: boolean }> = ({ onSelect, player, color, excludeIds, isMobile }) => {
   const [options, setOptions] = useState<Card[][]>([]);
-  const [hoveredIdx, setHoveredIdx] = useState<number>(0);
+  const [previewIdx, setPreviewIdx] = useState<number>(0); // 確定前のプレビュー用インデックス
 
   useEffect(() => {
     // 相手が選んだカードを除外して生成
@@ -324,50 +343,51 @@ const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; c
   }, [excludeIds]);
 
   const handleClick = (deck: Card[], idx: number) => {
-    // モバイル: 1回目プレビュー、2回目決定
-    if (isMobile && hoveredIdx !== idx) {
-      setHoveredIdx(idx);
-    } else {
+    if (previewIdx === idx) {
+      // 2回目タップ（または既にプレビュー中のものをクリック）で決定
       onSelect(deck);
+    } else {
+      // 1回目タップ（または別の候補をクリック）でプレビュー切り替え
+      setPreviewIdx(idx);
     }
   };
 
   if (options.length === 0) return null;
 
   return (
-    <div className="w-full h-full flex flex-col gap-6 animate-in fade-in duration-700 px-2 overflow-hidden">
-      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-6 overflow-y-auto pb-4">
+    <div className="w-full flex flex-col gap-6 animate-in fade-in duration-700 px-2">
+      {/* 候補一覧 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-6">
         {options.map((deck, idx) => (
           <button 
             key={idx} 
-            onMouseEnter={() => !isMobile && setHoveredIdx(idx)} 
             onClick={() => handleClick(deck, idx)} 
             className={`relative flex flex-col items-center justify-center p-4 sm:p-8 rounded-2xl sm:rounded-3xl border-2 sm:border-4 transition-all duration-300 
-              ${hoveredIdx === idx 
+              ${previewIdx === idx 
                 ? (color === 'blue' ? 'bg-blue-600/10 border-blue-500 scale-[1.02]' : 'bg-red-600/10 border-red-500 scale-[1.02]') 
                 : 'bg-slate-900/50 border-slate-800 hover:border-slate-600'
               }`}
           >
-            <div className={`text-[10px] sm:text-xs font-black mb-1 ${hoveredIdx === idx ? (color === 'blue' ? 'text-blue-400' : 'text-red-400') : 'text-slate-500'}`}>PATTERN 0{idx + 1}</div>
+            <div className={`text-[10px] sm:text-xs font-black mb-1 ${previewIdx === idx ? (color === 'blue' ? 'text-blue-400' : 'text-red-400') : 'text-slate-500'}`}>PATTERN 0{idx + 1}</div>
             <div className="text-xl sm:text-3xl font-black italic tracking-tighter mb-4 text-white uppercase leading-none">SELECT <span className={color === 'blue' ? 'text-blue-500' : 'text-red-500'}>DECK</span></div>
             <div className="space-y-1 w-full text-left opacity-70 group-hover:opacity-100 transition-opacity">
               {deck.map((c, i) => (
                 <div key={i} className="flex justify-between text-[8px] sm:text-[10px] font-bold border-b border-slate-800 pb-0.5"><span className="text-slate-500 font-mono">Lv.{c.level}</span><span className="truncate max-w-[80px] sm:max-w-[120px] text-slate-300 uppercase">{c.name}</span></div>
               ))}
             </div>
-            {hoveredIdx === idx && (
+            {previewIdx === idx && (
               <div className={`mt-4 flex items-center gap-1 font-black animate-pulse text-xs uppercase ${color === 'blue' ? 'text-blue-400' : 'text-red-400'}`}>
-                {isMobile ? 'Tap again to Confirm' : 'Click to Confirm'} <Play size={12} fill="currentColor" />
+                Click to Confirm <Play size={12} fill="currentColor" />
               </div>
             )}
           </button>
         ))}
       </div>
       
-      {/* Preview Area - モバイルでも表示 (h-[200px]確保) */}
-      <div className="h-[200px] sm:h-[300px] lg:h-[380px] bg-slate-900/80 border-t-2 border-slate-800 rounded-t-[2rem] sm:rounded-t-[4rem] p-4 sm:p-10 flex justify-center items-end gap-2 sm:gap-6 overflow-hidden backdrop-blur-sm shrink-0">
-          {options[hoveredIdx].map((card, i) => (
-            <div key={`${hoveredIdx}-${card.id}-${i}`} className="w-20 sm:w-32 lg:w-40 flex flex-col transition-all duration-500 transform hover:-translate-y-4">
+      {/* プレビューエリア (常に表示) */}
+      <div className="flex h-[200px] sm:h-[300px] lg:h-[380px] bg-slate-900/80 border-t-2 border-slate-800 rounded-t-[2rem] sm:rounded-t-[4rem] p-4 sm:p-10 justify-center items-end gap-2 sm:gap-6 overflow-hidden backdrop-blur-sm shrink-0">
+          {options[previewIdx].map((card, i) => (
+            <div key={`${previewIdx}-${card.id}-${i}`} className="w-20 sm:w-32 lg:w-40 flex flex-col transition-all duration-500 transform hover:-translate-y-4">
                <div className="flex-1 min-h-0 flex items-end pb-2"><CardComponent card={{...card, owner: player as any}} small isMobile={false} /></div>
                <div className="mt-2 text-center shrink-0 leading-tight hidden sm:block">
                  <div className={`text-[10px] font-black ${color === 'blue' ? 'text-blue-500' : 'text-red-500'}`}>LEVEL {card.level}</div>
@@ -380,9 +400,40 @@ const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; c
   );
 };
 
-// ... CoinToss, HandComp (前回のまま維持)
+const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner, onComplete }) => {
+  const [rotation, setRotation] = useState(0);
+  const [showResultText, setShowResultText] = useState(false);
+  useEffect(() => {
+    const spins = 6 + Math.floor(Math.random() * 3);
+    const timer = setTimeout(() => {
+      setRotation(360 * spins + (winner === 'PLAYER 1' ? 0 : 180));
+      setTimeout(() => setShowResultText(true), 3800);
+      setTimeout(onComplete, 5500);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [winner, onComplete]);
+  return (
+    <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl z-50 p-4">
+      <div className="mb-8 sm:mb-16 text-center animate-in fade-in duration-500">
+        <h2 className="text-3xl sm:text-5xl font-black italic tracking-[0.2em] text-white uppercase mb-4 leading-none">Coin Toss</h2>
+        <p className="text-slate-400 font-black tracking-widest uppercase text-[10px] sm:text-sm leading-none">Determining the First Turn...</p>
+      </div>
+      <div className="relative w-48 h-48 sm:w-72 sm:h-72 perspective-1000">
+        <div className="w-full h-full relative transition-transform duration-[4000ms] ease-in-out transform-style-3d" style={{ transform: `rotateY(${rotation}deg)` }}>
+          <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-blue-400 bg-gradient-to-br from-blue-500 to-blue-800 flex flex-col items-center justify-center shadow-2xl backface-hidden">
+            <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P1</span>
+          </div>
+          <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-red-500 bg-gradient-to-br from-red-600 to-red-900 flex flex-col items-center justify-center shadow-2xl backface-hidden rotate-y-180">
+            <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P2</span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-12 sm:mt-20 h-16">{showResultText && <div className="animate-in slide-in-from-bottom-4 zoom-in duration-700 px-8 py-3 rounded-full border-4 font-black italic text-xl sm:text-3xl text-white uppercase">{winner} START</div>}</div>
+    </div>
+  );
+};
 
-// --- Logic Hook ---
+// --- Main Logic ---
 const useGame = () => {
   const [gameState, setGameState] = useState<GameState>('TITLE');
   const [round, setRound] = useState(1);
@@ -394,7 +445,7 @@ const useGame = () => {
   const [selectedCardIdx, setSelectedCardIdx] = useState<number | null>(null);
   const [tossWinner, setTossWinner] = useState<PlayerType | null>(null);
   const [selectingPlayer, setSelectingPlayer] = useState<PlayerType>('P1');
-  const [activeEffect, setActiveEffect] = useState<string | null>(null);
+  const [activeEffect, setActiveEffect] = useState<EffectType>(null);
   const [settings, setSettings] = useState<GameSettings>({
     elementalEnabled: true, sameEnabled: true, plusEnabled: true, cpuDifficulty: 'MID', pvpMode: false
   });
@@ -435,9 +486,9 @@ const useGame = () => {
     setGameState('COIN_TOSS');
   };
 
-  const triggerEffect = (name: string) => {
-    setActiveEffect(name);
-    setTimeout(() => setActiveEffect(null), 2000); // 2秒表示
+  const triggerEffect = (type: EffectType) => {
+    setActiveEffect(type);
+    setTimeout(() => setActiveEffect(null), 1500);
   };
 
   const placeCard = useCallback((idx: number, hand: Card[], handIdx: number, owner: PlayerType) => {
@@ -602,44 +653,12 @@ export default function App() {
     }
   }, [g.turn, g.gameState, g.p2Hand, g.settings, g.board, g.placeCard]);
 
-  // COIN_TOSS Component (Keep previous logic)
-  const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner, onComplete }) => {
-    const [rotation, setRotation] = useState(0);
-    const [showResultText, setShowResultText] = useState(false);
-    useEffect(() => {
-      const spins = 6 + Math.floor(Math.random() * 3);
-      const timer = setTimeout(() => {
-        setRotation(360 * spins + (winner === 'PLAYER 1' ? 0 : 180));
-        setTimeout(() => setShowResultText(true), 3800);
-        setTimeout(onComplete, 5500);
-      }, 100);
-      return () => clearTimeout(timer);
-    }, [winner, onComplete]);
-    return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl z-50 p-4">
-        <div className="mb-8 sm:mb-16 text-center animate-in fade-in duration-500">
-          <h2 className="text-3xl sm:text-5xl font-black italic tracking-[0.2em] text-white uppercase mb-4 leading-none">Coin Toss</h2>
-          <p className="text-slate-400 font-black tracking-widest uppercase text-[10px] sm:text-sm leading-none">Determining the First Turn...</p>
-        </div>
-        <div className="relative w-48 h-48 sm:w-72 sm:h-72 perspective-1000">
-          <div className="w-full h-full relative transition-transform duration-[4000ms] ease-in-out transform-style-3d" style={{ transform: `rotateY(${rotation}deg)` }}>
-            <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-blue-400 bg-gradient-to-br from-blue-500 to-blue-800 flex flex-col items-center justify-center shadow-2xl backface-hidden">
-              <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P1</span>
-            </div>
-            <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-red-500 bg-gradient-to-br from-red-600 to-red-900 flex flex-col items-center justify-center shadow-2xl backface-hidden rotate-y-180">
-              <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P2</span>
-            </div>
-          </div>
-        </div>
-        <div className="mt-12 sm:mt-20 h-16">{showResultText && <div className="animate-in slide-in-from-bottom-4 zoom-in duration-700 px-8 py-3 rounded-full border-4 font-black italic text-xl sm:text-3xl text-white uppercase">{winner} START</div>}</div>
-      </div>
-    );
-  };
-
-  // Rendering
+  // UI Render
   if (g.gameState === 'TITLE') return (
     <div className="w-full h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden relative">
-      {/* Title Content ... */}
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full animate-pulse" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700" />
+      
       <div className="relative z-10 flex flex-col items-center max-w-4xl w-full">
         <h1 className="text-6xl sm:text-9xl font-black italic mb-8 sm:mb-16 uppercase tracking-tighter drop-shadow-2xl">Triple <span className="text-blue-500">Triad</span></h1>
         
@@ -704,35 +723,6 @@ export default function App() {
     </div>
   );
 
-  if (g.gameState === 'DECK_SELECT') return (
-    <div className="w-full h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans overflow-hidden">
-      <div className="h-full flex flex-col items-center overflow-y-auto pb-10 w-full">
-         <div className="mb-4 sm:mb-6 text-center shrink-0 pt-4">
-            <h2 className="text-2xl sm:text-4xl font-black italic uppercase text-white mb-1 leading-none">Deck Selection</h2>
-            <div className={`px-6 sm:px-10 py-1 sm:py-1.5 rounded-full inline-block font-black uppercase text-[10px] sm:text-xs tracking-widest shadow-xl ${g.selectingPlayer === 'P1' ? 'bg-blue-600' : 'bg-red-600'}`}>
-               {g.selectingPlayer === 'P1' ? 'PLAYER 1' : 'PLAYER 2'} CHOICE
-            </div>
-         </div>
-         <div className="flex-1 w-full max-w-7xl min-h-0">
-            <DeckSelect 
-              key={g.selectingPlayer} 
-              onSelect={g.handleDeckSelect} 
-              player={g.selectingPlayer} 
-              color={g.selectingPlayer === 'P1' ? 'blue' : 'red'} 
-              excludeIds={g.selectingPlayer === 'P2' ? new Set(g.p1Hand.map(c => c.id)) : new Set()}
-              isMobile={isMobile}
-            />
-         </div>
-      </div>
-    </div>
-  );
-
-  if (g.gameState === 'COIN_TOSS') return (
-    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans">
-       {g.tossWinner && <CoinToss winner={g.tossWinner === 'P1' ? 'PLAYER 1' : (g.settings.pvpMode ? 'PLAYER 2' : 'CPU')} onComplete={() => g.setGameState('PLAYING')} />}
-    </div>
-  );
-
   return (
     <div className="w-full h-screen bg-slate-950 text-white flex flex-col p-2 lg:p-6 font-sans overflow-hidden">
       <header className="flex justify-between items-center mb-2 lg:mb-6 border-b border-slate-900 pb-2 lg:pb-4 shrink-0 z-50">
@@ -759,6 +749,24 @@ export default function App() {
       </header>
 
       <main className="flex-1 relative min-h-0 w-full flex flex-col">
+        {g.gameState === 'DECK_SELECT' && (
+          <div className="h-full flex flex-col items-center overflow-y-auto pb-10">
+             <div className="mb-4 sm:mb-6 text-center shrink-0">
+                <h2 className="text-2xl sm:text-4xl font-black italic uppercase text-white mb-1 leading-none">Deck Selection</h2>
+                <div className={`px-6 sm:px-10 py-1 sm:py-1.5 rounded-full inline-block font-black uppercase text-[10px] sm:text-xs tracking-widest shadow-xl ${g.selectingPlayer === 'P1' ? 'bg-blue-600' : 'bg-red-600'}`}>
+                   {g.selectingPlayer === 'P1' ? 'PLAYER 1' : 'PLAYER 2'} CHOICE
+                </div>
+             </div>
+             <div className="flex-1 w-full max-w-7xl min-h-0">
+                <DeckSelect key={g.selectingPlayer} onSelect={g.handleDeckSelect} player={g.selectingPlayer} color={g.selectingPlayer === 'P1' ? 'blue' : 'red'} excludeIds={g.selectingPlayer === 'P2' ? new Set(g.p1Hand.map(c => c.id)) : new Set()} isMobile={isMobile} />
+             </div>
+          </div>
+        )}
+        
+        {g.gameState === 'COIN_TOSS' && g.tossWinner && (
+          <CoinToss winner={g.tossWinner === 'P1' ? 'PLAYER 1' : (g.settings.pvpMode ? 'PLAYER 2' : 'CPU')} onComplete={() => g.setGameState('PLAYING')} />
+        )}
+
         {['PLAYING', 'ROUND_END', 'GAME_OVER'].includes(g.gameState) && (
           <div className="h-full w-full flex flex-col lg:flex-row gap-4 lg:gap-12 justify-center animate-in fade-in duration-500 overflow-hidden">
             <div className="w-full lg:w-64 shrink-0 order-1 lg:order-3">
@@ -811,6 +819,7 @@ export default function App() {
         .rotate-y-180{transform:rotateY(180deg)}
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
         .animate-in { animation: fade-in 0.5s ease-out forwards; }
+        .overflow-y-auto::-webkit-scrollbar { display: none; } .overflow-y-auto { -ms-overflow-style: none; scrollbar-width: none; }
       `}} />
     </div>
   );
