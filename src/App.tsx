@@ -1,4 +1,4 @@
-// Version: v1.5 - Fix HandComp Prop Type Error
+// Version: v1.6 - Fix HandComp Prop Type Error (Final)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Swords, Trophy, Medal, CheckCircle2, XCircle, RefreshCw, 
@@ -782,7 +782,7 @@ export default function App() {
           <>
             {/* P2 Hand (Top/Right) */}
             <div className={`${isLandscape ? 'w-48 h-full order-3' : 'w-full h-24 shrink-0 order-1'}`}>
-              <HandComp hand={g.p2Hand} score={g.scores[1]} isTurn={g.turn === 'P2'} color="red" selectedIdx={g.turn === 'P2' && g.settings.pvpMode ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isMobile={!isLandscape} />
+              <HandComp hand={g.p2Hand} score={g.scores[1]} isTurn={g.turn === 'P2'} color="red" selectedIdx={g.turn === 'P2' && g.settings.pvpMode ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isLandscape={isLandscape} />
             </div>
             
             {/* Board Area (Center) */}
@@ -805,7 +805,7 @@ export default function App() {
 
             {/* P1 Hand (Bottom/Left) */}
             <div className={`${isLandscape ? 'w-48 h-full order-1' : 'w-full h-24 shrink-0 order-3'}`}>
-              <HandComp hand={g.p1Hand} score={g.scores[0]} isTurn={g.turn === 'P1'} color="blue" selectedIdx={g.turn === 'P1' ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isMobile={!isLandscape} />
+              <HandComp hand={g.p1Hand} score={g.scores[0]} isTurn={g.turn === 'P1'} color="blue" selectedIdx={g.turn === 'P1' ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isLandscape={isLandscape} />
             </div>
           </>
         )}
