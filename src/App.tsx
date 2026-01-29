@@ -1,4 +1,4 @@
-// Version: v1.4 - Fix Build Errors (isMobile Prop) & UI Tweaks
+// Version: v1.5 - Fix HandComp Prop Type Error
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Swords, Trophy, Medal, CheckCircle2, XCircle, RefreshCw, 
@@ -138,7 +138,6 @@ const getBestMove = (board: BoardTile[], hand: Card[], settings: GameSettings): 
 
 // --- Components ---
 
-// Prop type fix: Changed isLandscape to isMobile to match usage
 const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHovered?: boolean; onClick?: () => void; small?: boolean; side?: 'left' | 'right'; isMobile?: boolean }> = ({ card, isSelected, isHovered, onClick, small, side = 'left', isMobile = false }) => {
   const [isFlipping, setIsFlipping] = useState(false);
   const [displayOwner, setDisplayOwner] = useState(card?.owner);
@@ -212,8 +211,7 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
     }
   }
 
-  // モバイルなら下起点、PCなら左右起点
-  const transformOrigin = isMobile ? 'origin-bottom' : (side === 'left' ? 'origin-right' : 'origin-left');
+  const transformOrigin = side === 'left' ? 'origin-right' : 'origin-left';
 
   return (
     <div 
@@ -792,6 +790,8 @@ export default function App() {
               <div className={`px-6 lg:px-12 py-1 lg:py-2 rounded-full mb-2 lg:mb-6 font-black uppercase text-xs lg:text-lg shadow-2xl border-2 z-50 transition-colors ${g.turn === 'P1' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-red-600/20 border-red-500 text-red-400'}`}>
                 {g.turn === 'P1' ? "Player 1 Turn" : (g.settings.pvpMode ? "Player 2 Turn" : "CPU Thinking...")}
               </div>
+              
+              {/* Board Container: 縦横どちらでも画面内に収まるように制限 */}
               <div className={`aspect-square flex items-center justify-center ${isLandscape ? 'h-full max-h-[80vh]' : 'w-full max-w-[80vw]'}`}>
                 <BoardComp 
                   board={g.board} 
