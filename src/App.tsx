@@ -1,4 +1,4 @@
-// Version: v1.1 - Fix Deck Images & Coin Toss
+// Version: v1.2 - Fix TS Build Errors & Responsive Props
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Swords, Trophy, Medal, CheckCircle2, XCircle, RefreshCw, 
@@ -56,8 +56,10 @@ const CARD_DATA = CARD_DATA_RAW as Card[];
 function resolveImgPath(path: string) {
   if (!path) return "";
   if (path.startsWith('http')) return path;
+  const env = (import.meta as any).env;
+  const baseUrl = (env?.BASE_URL || '/').replace(/\/$/, '');
   const cleanPath = path.replace(/^\.?\//, '');
-  return `/${cleanPath}`;
+  return `${baseUrl}/${cleanPath}`;
 }
 
 function generateDeck(excludeIds?: Set<number>): Card[] {
@@ -273,7 +275,7 @@ const BoardComp: React.FC<{ board: BoardTile[]; onPlace: (idx: number) => void; 
                <span className="text-[8px] sm:text-[10px] font-black text-white/10 uppercase mt-1">{tile.element}</span>
             </div>
           )}
-          {tile.card && <div className="w-full h-full p-1 animate-in zoom-in-95 duration-300 z-10"><CardComponent card={tile.card} isMobile={false} /></div>}
+          {tile.card && <div className="w-full h-full p-1 animate-in zoom-in-95 duration-300 z-10"><CardComponent card={tile.card} /></div>}
         </div>
       ))}
       {effect && (
@@ -289,7 +291,6 @@ const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selecte
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const isP1 = color === 'blue';
   
-  // 縦向き: 横並び手札 / 横向き: 縦並び手札
   return (
     <div className={`flex ${!isLandscape ? 'flex-row w-full h-24 sm:h-32' : 'flex-col w-32 sm:w-48 h-full'} gap-2 sm:gap-4 relative shrink-0`}>
       <div className={`p-2 sm:p-4 rounded-xl sm:rounded-2xl border-2 shadow-lg flex ${!isLandscape ? 'flex-col items-center justify-center min-w-[3rem]' : 'justify-between items-center'} z-20 shrink-0 ${isP1 ? 'bg-blue-900/30 border-blue-500/50' : 'bg-red-900/30 border-red-500/50'}`}>
@@ -313,7 +314,7 @@ const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selecte
               isSelected={selectedIdx === i} 
               isHovered={hoveredIdx === i}
               side={isP1 ? 'left' : 'right'} 
-              isMobile={!isLandscape}
+              isLandscape={isLandscape}
               onClick={() => isTurn && onSelect(i)} 
             />
           </div>
@@ -326,7 +327,7 @@ const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selecte
   );
 };
 
-const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red'; excludeIds: Set<number>; isMobile: boolean }> = ({ onSelect, player, color, excludeIds, isMobile }) => {
+const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red'; excludeIds: Set<number>; isLandscape: boolean }> = ({ onSelect, player, color, excludeIds, isLandscape }) => {
   const [options, setOptions] = useState<Card[][]>([]);
   const [previewIdx, setPreviewIdx] = useState<number>(0);
 
@@ -351,6 +352,7 @@ const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; c
         {options.map((deck, idx) => (
           <button 
             key={idx} 
+            onMouseEnter={() => isLandscape && setPreviewIdx(idx)} 
             onClick={() => handleClick(deck, idx)} 
             className={`relative flex flex-col items-center justify-center p-4 sm:p-8 rounded-2xl sm:rounded-3xl border-2 sm:border-4 transition-all duration-300 
               ${previewIdx === idx 
@@ -374,14 +376,10 @@ const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; c
         ))}
       </div>
       
-      {/* PREVIEW AREA FIX: 
-        Removed 'hidden lg:flex' so it displays on all screen sizes.
-        Added min-height to ensure visibility.
-      */}
       <div className="flex h-[200px] sm:h-[300px] lg:h-[380px] bg-slate-900/80 border-t-2 border-slate-800 rounded-t-[2rem] sm:rounded-t-[4rem] p-4 sm:p-10 justify-center items-end gap-2 sm:gap-6 overflow-hidden backdrop-blur-sm shrink-0">
           {options[previewIdx].map((card, i) => (
             <div key={`${previewIdx}-${card.id}-${i}`} className="w-20 sm:w-32 lg:w-40 flex flex-col transition-all duration-500 transform hover:-translate-y-4">
-               <div className="flex-1 min-h-0 flex items-end pb-2"><CardComponent card={{...card, owner: player as any}} small isMobile={false} /></div>
+               <div className="flex-1 min-h-0 flex items-end pb-2"><CardComponent card={{...card, owner: player as any}} small isLandscape={isLandscape} /></div>
                <div className="mt-2 text-center shrink-0 leading-tight hidden sm:block">
                  <div className={`text-[10px] font-black ${color === 'blue' ? 'text-blue-500' : 'text-red-500'}`}>LEVEL {card.level}</div>
                  <div className="text-sm font-black text-white truncate px-1 uppercase">{card.name}</div>
@@ -399,7 +397,7 @@ const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner
   useEffect(() => {
     const spins = 10 + Math.floor(Math.random() * 5); 
     const timer = setTimeout(() => {
-      // Fix rotation logic: P1 = 0deg, P2 = 180deg
+      // Fix rotation: P1=0deg (Front), P2=180deg (Back)
       const targetRotation = 360 * spins + (winner === 'P1' ? 0 : 180);
       setRotation(targetRotation);
       setTimeout(() => setShowResultText(true), 2800);
@@ -620,7 +618,7 @@ const useGame = () => {
     }
   }, [board, scores, gameState, matchResults]);
 
-  return { gameState, setGameState, round, matchResults, p1Hand, p2Hand, board, turn, selectedCardIdx, setSelectedCardIdx, tossWinner, selectingPlayer, settings, setSettings, handleDeckSelect, placeCard, scores, setRound, setMatchResults, startGame, nextRound: () => { setRound(r => r + 1); setSelectingPlayer('P1'); setGameState('DECK_SELECT'); }, activeEffect };
+  return { gameState, setGameState, round, matchResults, p1Hand, p2Hand, board, turn, selectedCardIdx, setSelectedCardIdx, tossWinner, selectingPlayer, settings, setSettings, handleDeckSelect, placeCard, scores, setRound, setMatchResults, startGame, nextRound: () => { setRound(r => r + 1); setSelectingPlayer('P1'); setGameState('DECK_SELECT'); }, activeEffect, setSelectingPlayer };
 };
 
 // --- Main App ---
@@ -738,7 +736,7 @@ export default function App() {
               player={g.selectingPlayer} 
               color={g.selectingPlayer === 'P1' ? 'blue' : 'red'} 
               excludeIds={g.selectingPlayer === 'P2' ? new Set(g.p1Hand.map(c => c.id)) : new Set()}
-              isMobile={!isLandscape}
+              isLandscape={isLandscape}
             />
          </div>
       </div>
@@ -789,6 +787,8 @@ export default function App() {
               <div className={`px-6 lg:px-12 py-1 lg:py-2 rounded-full mb-2 lg:mb-6 font-black uppercase text-xs lg:text-lg shadow-2xl border-2 z-50 transition-colors ${g.turn === 'P1' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-red-600/20 border-red-500 text-red-400'}`}>
                 {g.turn === 'P1' ? "Player 1 Turn" : (g.settings.pvpMode ? "Player 2 Turn" : "CPU Thinking...")}
               </div>
+              
+              {/* Board Container: 縦横どちらでも画面内に収まるように制限 */}
               <div className={`aspect-square flex items-center justify-center ${isLandscape ? 'h-full max-h-[80vh]' : 'w-full max-w-[80vw]'}`}>
                 <BoardComp 
                   board={g.board} 
