@@ -1,4 +1,4 @@
-// Version: v1.2 - Fix TS Build Errors & Responsive Props
+// Version: v1.3 - Fix CoinToss, DeckSelect Layout & Force Vertical Layout
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Swords, Trophy, Medal, CheckCircle2, XCircle, RefreshCw, 
@@ -56,6 +56,7 @@ const CARD_DATA = CARD_DATA_RAW as Card[];
 function resolveImgPath(path: string) {
   if (!path) return "";
   if (path.startsWith('http')) return path;
+  // import.meta.env の型エラー回避
   const env = (import.meta as any).env;
   const baseUrl = (env?.BASE_URL || '/').replace(/\/$/, '');
   const cleanPath = path.replace(/^\.?\//, '');
@@ -201,25 +202,21 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
       ? 'from-red-600 to-red-900 border-red-400 border-4 shadow-[0_0_20px_rgba(248,113,113,0.5)]' 
       : 'from-slate-700 to-slate-900 border-slate-500 border-2';
 
+  // 常に縦向きレイアウトで統一するため、アニメーションも縦方向のみ
   let translateClass = '';
   if (onClick) {
     if (isSelected) {
-      translateClass = !isLandscape 
-        ? '-translate-y-[60%] scale-105' 
-        : (side === 'left' ? '-translate-x-[60%] scale-95' : 'translate-x-[60%] scale-95');
+      translateClass = '-translate-y-[60%] scale-105';
     } else if (isHovered) {
-      translateClass = !isLandscape
-        ? '-translate-y-[20%] scale-105'
-        : (side === 'left' ? 'hover:-translate-x-[40%] scale-110' : 'hover:translate-x-[40%] scale-110');
+      translateClass = '-translate-y-[20%] scale-105';
     }
   }
-
-  const transformOrigin = side === 'left' ? 'origin-right' : 'origin-left';
 
   return (
     <div 
       onClick={(e) => { if (onClick) { e.stopPropagation(); onClick(); } }} 
-      className={`relative w-full aspect-[3/4] transition-all duration-300 perspective-1000 ${transformOrigin} ${onClick ? 'cursor-pointer' : ''} ${isSelected ? 'z-40 ring-4 ring-yellow-400 rounded-xl shadow-[0_0_30px_rgba(250,204,21,0.4)]' : 'z-10 hover:z-50'} ${translateClass} ${small ? 'scale-90' : ''}`}
+      className={`relative w-full aspect-[3/4] transition-all duration-300 perspective-1000 ${onClick ? 'cursor-pointer' : ''} ${isSelected ? 'z-40 ring-4 ring-yellow-400 rounded-xl shadow-[0_0_30px_rgba(250,204,21,0.4)]' : 'z-10 hover:z-50'} ${translateClass} ${small ? 'scale-90' : ''}`}
+      style={{ transformOrigin: 'bottom center' }}
     >
       <div className={`relative w-full h-full transition-transform duration-500 transform-style-3d ${isFlipping ? 'rotate-y-180' : ''}`}>
         <div className={`absolute inset-0 w-full h-full rounded-xl bg-gradient-to-br ${ownerClass} overflow-hidden shadow-lg backface-hidden`}>
@@ -249,7 +246,13 @@ const CardComponent: React.FC<{ card: Card | null; isSelected?: boolean; isHover
             <div className="text-[10px] sm:text-[13px] font-black text-white uppercase tracking-normal text-center truncate drop-shadow-lg">{card.name}</div>
           </div>
         </div>
-        <div className="absolute inset-0 w-full h-full rounded-xl bg-slate-800 border-4 border-slate-600 flex items-center justify-center rotate-y-180 backface-hidden text-slate-500 font-black italic text-lg shadow-inner">TT</div>
+        {/* 裏面 - backfaceVisibility: hidden が効くように構造を修正 */}
+        <div 
+          className="absolute inset-0 w-full h-full rounded-xl bg-slate-800 border-4 border-slate-600 flex items-center justify-center shadow-inner"
+          style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden' }}
+        >
+           <div className="w-10 h-10 rounded-full border-4 border-slate-700 flex items-center justify-center font-black text-slate-600 italic text-lg">TT</div>
+        </div>
       </div>
     </div>
   );
@@ -275,7 +278,7 @@ const BoardComp: React.FC<{ board: BoardTile[]; onPlace: (idx: number) => void; 
                <span className="text-[8px] sm:text-[10px] font-black text-white/10 uppercase mt-1">{tile.element}</span>
             </div>
           )}
-          {tile.card && <div className="w-full h-full p-1 animate-in zoom-in-95 duration-300 z-10"><CardComponent card={tile.card} /></div>}
+          {tile.card && <div className="w-full h-full p-1 animate-in zoom-in-95 duration-300 z-10"><CardComponent card={tile.card} isMobile={false} /></div>}
         </div>
       ))}
       {effect && (
@@ -287,24 +290,25 @@ const BoardComp: React.FC<{ board: BoardTile[]; onPlace: (idx: number) => void; 
   );
 };
 
-const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selectedIdx: number | null; onSelect: (idx: number) => void; color: 'blue' | 'red'; isLandscape: boolean }> = ({ hand, score, isTurn, selectedIdx, onSelect, color, isLandscape }) => {
+const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selectedIdx: number | null; onSelect: (idx: number) => void; color: 'blue' | 'red'; isLandscape?: boolean }> = ({ hand, score, isTurn, selectedIdx, onSelect, color }) => {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const isP1 = color === 'blue';
   
+  // 常に横並び (flex-row) で統一
   return (
-    <div className={`flex ${!isLandscape ? 'flex-row w-full h-24 sm:h-32' : 'flex-col w-32 sm:w-48 h-full'} gap-2 sm:gap-4 relative shrink-0`}>
-      <div className={`p-2 sm:p-4 rounded-xl sm:rounded-2xl border-2 shadow-lg flex ${!isLandscape ? 'flex-col items-center justify-center min-w-[3rem]' : 'justify-between items-center'} z-20 shrink-0 ${isP1 ? 'bg-blue-900/30 border-blue-500/50' : 'bg-red-900/30 border-red-500/50'}`}>
-        <div className={`flex flex-col ${!isLandscape ? 'text-center' : 'leading-tight'}`}>
+    <div className={`flex flex-row w-full h-24 sm:h-32 gap-2 sm:gap-4 relative shrink-0`}>
+      <div className={`p-2 sm:p-4 rounded-xl sm:rounded-2xl border-2 shadow-lg flex flex-col items-center justify-center min-w-[3rem] z-20 shrink-0 ${isP1 ? 'bg-blue-900/30 border-blue-500/50' : 'bg-red-900/30 border-red-500/50'}`}>
+        <div className={`flex flex-col text-center leading-tight`}>
           <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-white/60 hidden sm:block">{isP1 ? 'P1' : 'P2'}</span>
           <span className={`text-xl sm:text-3xl font-black italic ${isP1 ? 'text-blue-400' : 'text-red-400'}`}>{score}</span>
         </div>
-        <div className={`${!isLandscape ? 'w-full h-1 mt-1' : 'w-2 h-8 lg:w-3 lg:h-12'} rounded-full ${isTurn ? (isP1 ? 'bg-blue-500 animate-pulse' : 'bg-red-500 animate-pulse') : 'bg-slate-700'}`} />
+        <div className={`w-full h-1 mt-1 rounded-full ${isTurn ? (isP1 ? 'bg-blue-500 animate-pulse' : 'bg-red-500 animate-pulse') : 'bg-slate-700'}`} />
       </div>
-      <div className={`flex-1 flex ${!isLandscape ? 'flex-row' : 'flex-col'} gap-1 min-h-0 relative items-end`}>
+      <div className={`flex-1 flex flex-row gap-1 min-h-0 relative items-end`}>
         {hand.map((card, i) => (
           <div 
             key={`${card.id}-${i}`} 
-            className={`flex-1 ${!isLandscape ? 'h-full aspect-[3/4]' : 'h-[18%] w-full'} relative transition-all duration-300`}
+            className={`flex-1 h-full aspect-[3/4] relative transition-all duration-300`}
             style={{ zIndex: hoveredIdx === i ? 50 : (selectedIdx === i ? 40 : 10) }}
             onMouseEnter={() => setHoveredIdx(i)}
             onMouseLeave={() => setHoveredIdx(null)}
@@ -314,20 +318,20 @@ const HandComp: React.FC<{ hand: Card[]; score: number; isTurn: boolean; selecte
               isSelected={selectedIdx === i} 
               isHovered={hoveredIdx === i}
               side={isP1 ? 'left' : 'right'} 
-              isLandscape={isLandscape}
+              isMobile={true} // 常に縦レイアウト用のアニメーション
               onClick={() => isTurn && onSelect(i)} 
             />
           </div>
         ))}
         {[...Array(Math.max(0, 5 - hand.length))].map((_, i) => (
-          <div key={`empty-${i}`} className={`flex-1 ${!isLandscape ? 'h-full aspect-[3/4]' : 'h-[18%] w-full'} opacity-10 pointer-events-none`}><CardComponent card={null} /></div>
+          <div key={`empty-${i}`} className={`flex-1 h-full aspect-[3/4] opacity-10 pointer-events-none`}><CardComponent card={null} /></div>
         ))}
       </div>
     </div>
   );
 };
 
-const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red'; excludeIds: Set<number>; isLandscape: boolean }> = ({ onSelect, player, color, excludeIds, isLandscape }) => {
+const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; color: 'blue' | 'red'; excludeIds: Set<number> }> = ({ onSelect, player, color, excludeIds }) => {
   const [options, setOptions] = useState<Card[][]>([]);
   const [previewIdx, setPreviewIdx] = useState<number>(0);
 
@@ -347,45 +351,50 @@ const DeckSelect: React.FC<{ onSelect: (deck: Card[]) => void; player: string; c
   if (options.length === 0) return null;
 
   return (
-    <div className="w-full flex flex-col gap-6 animate-in fade-in duration-700 px-2 h-full">
-      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-6 overflow-y-auto pb-4 min-h-0">
-        {options.map((deck, idx) => (
-          <button 
-            key={idx} 
-            onMouseEnter={() => isLandscape && setPreviewIdx(idx)} 
-            onClick={() => handleClick(deck, idx)} 
-            className={`relative flex flex-col items-center justify-center p-4 sm:p-8 rounded-2xl sm:rounded-3xl border-2 sm:border-4 transition-all duration-300 
-              ${previewIdx === idx 
-                ? (color === 'blue' ? 'bg-blue-600/10 border-blue-500 scale-[1.02]' : 'bg-red-600/10 border-red-500 scale-[1.02]') 
-                : 'bg-slate-900/50 border-slate-800 hover:border-slate-600'
-              }`}
-          >
-            <div className={`text-[10px] sm:text-xs font-black mb-1 ${previewIdx === idx ? (color === 'blue' ? 'text-blue-400' : 'text-red-400') : 'text-slate-500'}`}>PATTERN 0{idx + 1}</div>
-            <div className="text-xl sm:text-3xl font-black italic tracking-tighter mb-4 text-white uppercase leading-none">SELECT <span className={color === 'blue' ? 'text-blue-500' : 'text-red-500'}>DECK</span></div>
-            <div className="space-y-1 w-full text-left opacity-70 group-hover:opacity-100 transition-opacity">
-              {deck.map((c, i) => (
-                <div key={i} className="flex justify-between text-[8px] sm:text-[10px] font-bold border-b border-slate-800 pb-0.5"><span className="text-slate-500 font-mono">Lv.{c.level}</span><span className="truncate max-w-[80px] sm:max-w-[120px] text-slate-300 uppercase">{c.name}</span></div>
-              ))}
-            </div>
-            {previewIdx === idx && (
-              <div className={`mt-4 flex items-center gap-1 font-black animate-pulse text-xs uppercase ${color === 'blue' ? 'text-blue-400' : 'text-red-400'}`}>
-                Click to Confirm <Play size={12} fill="currentColor" />
-              </div>
-            )}
-          </button>
-        ))}
-      </div>
+    <div className="w-full h-full flex flex-col gap-4 animate-in fade-in duration-700 px-2 overflow-hidden">
       
-      <div className="flex h-[200px] sm:h-[300px] lg:h-[380px] bg-slate-900/80 border-t-2 border-slate-800 rounded-t-[2rem] sm:rounded-t-[4rem] p-4 sm:p-10 justify-center items-end gap-2 sm:gap-6 overflow-hidden backdrop-blur-sm shrink-0">
+      {/* 上段：プレビューエリア (固定) */}
+      <div className="h-[200px] sm:h-[300px] bg-slate-900/80 border-b-2 border-slate-800 rounded-b-[2rem] sm:rounded-b-[4rem] p-4 sm:p-10 flex justify-center items-end gap-2 sm:gap-6 overflow-hidden backdrop-blur-sm shrink-0 shadow-2xl z-10">
+          <div className="absolute top-4 left-0 w-full text-center text-xs font-black tracking-widest text-slate-500 uppercase">Selected Deck Preview</div>
           {options[previewIdx].map((card, i) => (
             <div key={`${previewIdx}-${card.id}-${i}`} className="w-20 sm:w-32 lg:w-40 flex flex-col transition-all duration-500 transform hover:-translate-y-4">
-               <div className="flex-1 min-h-0 flex items-end pb-2"><CardComponent card={{...card, owner: player as any}} small isLandscape={isLandscape} /></div>
+               <div className="flex-1 min-h-0 flex items-end pb-2"><CardComponent card={{...card, owner: player as any}} small isMobile={false} /></div>
                <div className="mt-2 text-center shrink-0 leading-tight hidden sm:block">
                  <div className={`text-[10px] font-black ${color === 'blue' ? 'text-blue-500' : 'text-red-500'}`}>LEVEL {card.level}</div>
                  <div className="text-sm font-black text-white truncate px-1 uppercase">{card.name}</div>
                </div>
             </div>
           ))}
+          {/* 決定ボタン (プレビュー下部) */}
+          <div className="absolute bottom-4 left-0 w-full flex justify-center">
+             <button onClick={() => onSelect(options[previewIdx])} className={`px-8 py-2 rounded-full font-black uppercase text-sm shadow-lg animate-pulse ${color === 'blue' ? 'bg-blue-600 text-white' : 'bg-red-600 text-white'}`}>
+                Confirm Pattern 0{previewIdx + 1}
+             </button>
+          </div>
+      </div>
+
+      {/* 下段：候補リスト (スクロール可) */}
+      <div className="flex-1 overflow-y-auto pb-4 px-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
+          {options.map((deck, idx) => (
+            <button 
+              key={idx} 
+              onClick={() => handleClick(deck, idx)} 
+              className={`relative flex flex-col items-center justify-center p-4 sm:p-6 rounded-2xl border-2 sm:border-4 transition-all duration-300 
+                ${previewIdx === idx 
+                  ? (color === 'blue' ? 'bg-blue-600/20 border-blue-500' : 'bg-red-600/20 border-red-500') 
+                  : 'bg-slate-900/50 border-slate-800 hover:border-slate-600'
+                }`}
+            >
+              <div className={`text-[10px] sm:text-xs font-black mb-1 ${previewIdx === idx ? (color === 'blue' ? 'text-blue-400' : 'text-red-400') : 'text-slate-500'}`}>PATTERN 0{idx + 1}</div>
+              <div className="space-y-1 w-full text-left opacity-70">
+                {deck.map((c, i) => (
+                  <div key={i} className="flex justify-between text-[8px] sm:text-[10px] font-bold border-b border-slate-800 pb-0.5"><span className="text-slate-500 font-mono">Lv.{c.level}</span><span className="truncate max-w-[80px] text-slate-300 uppercase">{c.name}</span></div>
+                ))}
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -397,7 +406,7 @@ const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner
   useEffect(() => {
     const spins = 10 + Math.floor(Math.random() * 5); 
     const timer = setTimeout(() => {
-      // Fix rotation: P1=0deg (Front), P2=180deg (Back)
+      // P1=0deg, P2=180deg
       const targetRotation = 360 * spins + (winner === 'P1' ? 0 : 180);
       setRotation(targetRotation);
       setTimeout(() => setShowResultText(true), 2800);
@@ -414,13 +423,13 @@ const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner
       </div>
       <div className="relative w-48 h-48 sm:w-72 sm:h-72 perspective-1000">
         <div className="w-full h-full relative transition-transform duration-[3000ms] cubic-bezier(0.25, 1, 0.5, 1) transform-style-3d" style={{ transform: `rotateY(${rotation}deg)` }}>
-          {/* P1 Side */}
-          <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-blue-400 bg-gradient-to-br from-blue-500 to-blue-800 flex flex-col items-center justify-center shadow-2xl backface-hidden">
-            <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P1</span>
+          {/* P1 Side (Front) */}
+          <div className="absolute inset-0 w-full h-full rounded-full border-[10px] border-blue-400 bg-gradient-to-br from-blue-500 to-blue-800 flex flex-col items-center justify-center shadow-2xl" style={{ backfaceVisibility: 'hidden' }}>
+            <span className="text-white font-black text-6xl italic leading-none">P1</span>
           </div>
-          {/* P2 Side */}
-          <div className="absolute inset-0 w-full h-full rounded-full border-[6px] sm:border-[10px] border-red-500 bg-gradient-to-br from-red-600 to-red-900 flex flex-col items-center justify-center shadow-2xl backface-hidden rotate-y-180">
-            <span className="text-white font-black text-4xl sm:text-6xl italic leading-none">P2</span>
+          {/* P2 Side (Back) */}
+          <div className="absolute inset-0 w-full h-full rounded-full border-[10px] border-red-500 bg-gradient-to-br from-red-600 to-red-900 flex flex-col items-center justify-center shadow-2xl" style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
+            <span className="text-white font-black text-6xl italic leading-none">P2</span>
           </div>
         </div>
       </div>
@@ -460,13 +469,11 @@ const useGame = () => {
   const handleDeckSelect = (deck: Card[]) => {
     if (selectingPlayer === 'P1') {
       setP1Hand(deck.map(c => ({ ...c, owner: 'P1' })));
-      // P1のカードIDリストを作成
       const p1Ids = new Set(deck.map(c => c.id));
       
       if (settings.pvpMode) {
         setSelectingPlayer('P2'); 
       } else { 
-        // CPUデッキ生成時もP1のカードを除外
         setP2Hand(generateDeck(p1Ids).map(c => ({ ...c, owner: 'P2' })));
         startGame();
       }
@@ -624,14 +631,13 @@ const useGame = () => {
 // --- Main App ---
 export default function App() {
   const g = useGame();
-  const [isLandscape, setIsLandscape] = useState(false);
-
-  useEffect(() => {
-    const handleResize = () => setIsLandscape(typeof window !== 'undefined' && window.innerWidth > window.innerHeight);
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  
+  const difficultyConfig = {
+    LOW: { label: 'Easy', color: 'text-emerald-400', border: 'border-emerald-900/50', icon: <CpuIcon size={20} /> },
+    MID: { label: 'Normal', color: 'text-blue-400', border: 'border-blue-900/50', icon: <CpuIcon size={20} /> },
+    HIGH: { label: 'Hard', color: 'text-red-400', border: 'border-red-900/50', icon: <CpuIcon size={20} /> },
+    EXPERT: { label: 'Expert', color: 'text-purple-400', border: 'border-purple-500/50', icon: <Sparkles size={20} /> },
+  };
 
   useEffect(() => {
     if (!g.settings.pvpMode && g.gameState === 'PLAYING' && g.turn === 'P2' && g.p2Hand.length > 0) {
@@ -643,153 +649,112 @@ export default function App() {
     }
   }, [g.turn, g.gameState, g.p2Hand, g.settings, g.board, g.placeCard]);
 
-  const difficultyConfig = {
-    LOW: { label: 'Easy', color: 'text-emerald-400', border: 'border-emerald-900/50', icon: <CpuIcon size={20} /> },
-    MID: { label: 'Normal', color: 'text-blue-400', border: 'border-blue-900/50', icon: <CpuIcon size={20} /> },
-    HIGH: { label: 'Hard', color: 'text-red-400', border: 'border-red-900/50', icon: <CpuIcon size={20} /> },
-    EXPERT: { label: 'Expert', color: 'text-purple-400', border: 'border-purple-500/50', icon: <Sparkles size={20} /> },
-  };
-
-  // UI RENDER
-  if (g.gameState === 'TITLE') return (
-    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden relative">
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full animate-pulse" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700" />
+  // UI RENDER (Global Container with Safe Area & Padding)
+  return (
+    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col p-4 sm:p-6 font-sans overflow-hidden relative">
       
-      <div className="relative z-10 flex flex-col items-center max-w-4xl w-full">
-        <h1 className="text-6xl lg:text-9xl font-black italic mb-8 lg:mb-16 uppercase tracking-tighter drop-shadow-2xl">Triple <span className="text-blue-500">Triad</span></h1>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-12 w-full mb-12">
-          {/* Game Mode */}
-          <div className="space-y-4 text-left">
-            <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Users size={14} /> Game Mode</h3>
-            <button onClick={() => g.setSettings({ ...g.settings, pvpMode: false })} className={`w-full p-4 sm:p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${!g.settings.pvpMode ? 'bg-blue-600 border-blue-400 shadow-lg' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
-              <div className="flex items-center gap-4"><User size={20} /><span className="font-black italic uppercase">VS CPU</span></div>
-              {!g.settings.pvpMode && <CheckCircle2 size={20} />}
-            </button>
-            <button onClick={() => g.setSettings({ ...g.settings, pvpMode: true })} className={`w-full p-4 sm:p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${g.settings.pvpMode ? 'bg-purple-600 border-purple-400 shadow-lg' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
-              <div className="flex items-center gap-4"><Users size={20} /><span className="font-black italic uppercase">LOCAL PVP</span></div>
-              {g.settings.pvpMode && <CheckCircle2 size={20} />}
-            </button>
-          </div>
-
-          {/* Rules */}
-          <div className="space-y-4 text-left">
-            <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Settings2 size={14} /> Rule Settings</h3>
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-3 gap-3">
-                <button onClick={() => g.setSettings({...g.settings, elementalEnabled: !g.settings.elementalEnabled})} className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl border-2 transition-all ${g.settings.elementalEnabled ? 'bg-emerald-600/20 border-emerald-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
-                  <Zap size={18} className={g.settings.elementalEnabled ? 'text-emerald-400' : ''} />
-                  <span className="text-[10px] font-black uppercase mt-1">Elem</span>
+      {/* TITLE SCREEN */}
+      {g.gameState === 'TITLE' && (
+        <div className="absolute inset-0 w-full h-full bg-slate-950 flex flex-col items-center justify-center p-8 z-50">
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full animate-pulse" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700" />
+          <div className="relative z-10 flex flex-col items-center max-w-4xl w-full">
+            <h1 className="text-6xl lg:text-9xl font-black italic mb-12 uppercase tracking-tighter drop-shadow-2xl">Triple <span className="text-blue-500">Triad</span></h1>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 w-full mb-12">
+              {/* Game Mode */}
+              <div className="space-y-4 text-left">
+                <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Users size={14} /> Game Mode</h3>
+                <button onClick={() => g.setSettings({ ...g.settings, pvpMode: false })} className={`w-full p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${!g.settings.pvpMode ? 'bg-blue-600 border-blue-400 shadow-lg' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
+                  <div className="flex items-center gap-4"><User size={20} /><span className="font-black italic uppercase">VS CPU</span></div>
+                  {!g.settings.pvpMode && <CheckCircle2 size={20} />}
                 </button>
-                <button onClick={() => g.setSettings({...g.settings, sameEnabled: !g.settings.sameEnabled})} className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl border-2 transition-all ${g.settings.sameEnabled ? 'bg-blue-600/20 border-blue-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
-                  <Layers size={18} className={g.settings.sameEnabled ? 'text-blue-400' : ''} />
-                  <span className="text-[10px] font-black uppercase mt-1">Same</span>
-                </button>
-                <button onClick={() => g.setSettings({...g.settings, plusEnabled: !g.settings.plusEnabled})} className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl border-2 transition-all ${g.settings.plusEnabled ? 'bg-amber-600/20 border-amber-500' : 'bg-slate-900 border-slate-800 opacity-40'}`}>
-                  <PlusIcon size={18} className={g.settings.plusEnabled ? 'text-amber-400' : ''} />
-                  <span className="text-[10px] font-black uppercase mt-1">Plus</span>
+                <button onClick={() => g.setSettings({ ...g.settings, pvpMode: true })} className={`w-full p-6 rounded-2xl border-2 flex justify-between items-center transition-all ${g.settings.pvpMode ? 'bg-purple-600 border-purple-400 shadow-lg' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
+                  <div className="flex items-center gap-4"><Users size={20} /><span className="font-black italic uppercase">LOCAL PVP</span></div>
+                  {g.settings.pvpMode && <CheckCircle2 size={20} />}
                 </button>
               </div>
-              
-              {!g.settings.pvpMode && (
-                <button 
-                  onClick={() => {
-                    const lvls: GameSettings['cpuDifficulty'][] = ['LOW', 'MID', 'HIGH', 'EXPERT'];
-                    g.setSettings({...g.settings, cpuDifficulty: lvls[(lvls.indexOf(g.settings.cpuDifficulty) + 1) % 4]});
-                  }} 
-                  className={`w-full p-4 sm:p-6 rounded-2xl border-2 flex items-center justify-between transition-all duration-300 bg-slate-900/50 hover:bg-slate-800/80 ${difficultyConfig[g.settings.cpuDifficulty].border}`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center bg-slate-800 ${difficultyConfig[g.settings.cpuDifficulty].color}`}>
-                      {difficultyConfig[g.settings.cpuDifficulty].icon}
-                    </div>
-                    <div>
-                      <div className={`font-black italic text-base sm:text-lg uppercase ${difficultyConfig[g.settings.cpuDifficulty].color}`}>CPU: {difficultyConfig[g.settings.cpuDifficulty].label}</div>
-                      <div className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Intelligence</div>
-                    </div>
-                  </div>
-                  <ChevronRight size={18} className="text-slate-600" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-        <button onClick={() => { g.setRound(1); g.setMatchResults([]); g.setGameState('DECK_SELECT'); }} className="px-16 sm:px-24 py-5 sm:py-8 bg-white text-slate-950 rounded-full font-black text-xl sm:text-3xl italic uppercase hover:scale-110 transition-all active:scale-95 shadow-xl">Start Battle</button>
-      </div>
-    </div>
-  );
 
-  if (g.gameState === 'DECK_SELECT') return (
-    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans overflow-hidden">
-      <div className="h-full flex flex-col items-center overflow-y-auto pb-10 w-full">
-         <div className="mb-4 sm:mb-6 text-center shrink-0 pt-4">
-            <h2 className="text-2xl sm:text-4xl font-black italic uppercase text-white mb-1 leading-none">Deck Selection</h2>
-            <div className={`px-6 sm:px-10 py-1 sm:py-1.5 rounded-full inline-block font-black uppercase text-[10px] sm:text-xs tracking-widest shadow-xl ${g.selectingPlayer === 'P1' ? 'bg-blue-600' : 'bg-red-600'}`}>
-               {g.selectingPlayer === 'P1' ? 'PLAYER 1' : 'PLAYER 2'} CHOICE
-            </div>
-         </div>
-         <div className="flex-1 w-full max-w-7xl min-h-0">
-            <DeckSelect 
-              key={g.selectingPlayer} 
-              onSelect={g.handleDeckSelect} 
-              player={g.selectingPlayer} 
-              color={g.selectingPlayer === 'P1' ? 'blue' : 'red'} 
-              excludeIds={g.selectingPlayer === 'P2' ? new Set(g.p1Hand.map(c => c.id)) : new Set()}
-              isLandscape={isLandscape}
-            />
-         </div>
-      </div>
-    </div>
-  );
-
-  if (g.gameState === 'COIN_TOSS') return (
-    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans">
-       {g.tossWinner && <CoinToss winner={g.tossWinner === 'P1' ? 'P1' : 'P2'} onComplete={() => g.setGameState('PLAYING')} />}
-    </div>
-  );
-
-  return (
-    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col p-2 lg:p-6 font-sans overflow-hidden">
-      <header className="flex justify-between items-center mb-2 lg:mb-6 border-b border-slate-900 pb-2 lg:pb-4 shrink-0 z-50">
-        <h1 className="text-lg lg:text-3xl font-black italic uppercase flex gap-2 lg:gap-4 items-center tracking-tighter">
-          <Swords className="text-blue-500" size={!isLandscape ? 24 : 32} /> Triple Triad
-        </h1>
-        <div className="flex gap-4 lg:gap-12 items-center">
-          <div className="hidden sm:flex gap-2">
-            {[...Array(3)].map((_, i) => {
-              const res = g.matchResults[i];
-              return (
-                <div key={i} className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${res ? (res.winner === 'P1' ? 'bg-blue-600 border-blue-400' : 'bg-red-600 border-red-400') : 'bg-slate-900 border-slate-800'}`}>
-                  {res ? (res.winner === 'P1' ? <CheckCircle2 size={16} /> : <XCircle size={16} />) : <span className="text-[10px] text-slate-700">{i+1}</span>}
+              {/* Rules */}
+              <div className="space-y-4 text-left">
+                <h3 className="text-slate-500 font-bold uppercase text-xs border-b border-slate-900 pb-2 flex items-center gap-2"><Settings2 size={14} /> Rules</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  {['elementalEnabled', 'sameEnabled', 'plusEnabled'].map(rule => (
+                    <button key={rule} onClick={() => g.setSettings({...g.settings, [rule]: !g.settings[rule as keyof GameSettings]})} className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${g.settings[rule as keyof GameSettings] ? 'border-blue-500 bg-blue-500/10 text-white' : 'border-slate-800 opacity-40'}`}>
+                      <span className="text-[10px] font-black uppercase">{rule.replace('Enabled', '')}</span>
+                    </button>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
-          <div className="flex gap-4 lg:gap-6 text-2xl lg:text-5xl font-black italic tracking-tighter leading-none">
-            <div className="text-blue-500">{g.scores[0]}</div>
-            <div className="text-slate-700">-</div>
-            <div className="text-red-500">{g.scores[1]}</div>
+                {!g.settings.pvpMode && (
+                  <button onClick={() => {
+                      const lvls: GameSettings['cpuDifficulty'][] = ['LOW', 'MID', 'HIGH', 'EXPERT'];
+                      g.setSettings({...g.settings, cpuDifficulty: lvls[(lvls.indexOf(g.settings.cpuDifficulty) + 1) % 4]});
+                    }} className={`w-full p-4 rounded-2xl border-2 flex items-center justify-between transition-all bg-slate-900/50 hover:bg-slate-800 ${difficultyConfig[g.settings.cpuDifficulty].border}`}>
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-slate-800 ${difficultyConfig[g.settings.cpuDifficulty].color}`}>{difficultyConfig[g.settings.cpuDifficulty].icon}</div>
+                      <div><div className={`font-black italic uppercase ${difficultyConfig[g.settings.cpuDifficulty].color}`}>CPU: {difficultyConfig[g.settings.cpuDifficulty].label}</div></div>
+                    </div>
+                    <ChevronRight size={18} className="text-slate-600" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <button onClick={() => { g.setRound(1); g.setMatchResults([]); g.setGameState('DECK_SELECT'); }} className="px-20 py-6 bg-white text-slate-950 rounded-full font-black text-2xl italic uppercase hover:scale-105 transition-all shadow-xl">Start Battle</button>
           </div>
         </div>
-      </header>
+      )}
 
-      <main className={`flex-1 relative min-h-0 w-full flex ${isLandscape ? 'flex-row' : 'flex-col'} justify-between items-center gap-4`}>
-        {['PLAYING', 'ROUND_END', 'GAME_OVER'].includes(g.gameState) && (
-          <>
-            {/* P2 Hand (Top/Right) */}
-            <div className={`${isLandscape ? 'w-48 h-full order-3' : 'w-full h-24 shrink-0 order-1'}`}>
-              <HandComp hand={g.p2Hand} score={g.scores[1]} isTurn={g.turn === 'P2'} color="red" selectedIdx={g.turn === 'P2' && g.settings.pvpMode ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isLandscape={isLandscape} />
+      {/* DECK SELECT SCREEN */}
+      {g.gameState === 'DECK_SELECT' && (
+        <div className="absolute inset-0 w-full h-full bg-slate-950 z-40 flex flex-col p-4 pt-8">
+           <div className="mb-4 text-center shrink-0">
+              <h2 className="text-3xl font-black italic uppercase text-white mb-2 leading-none">Deck Selection</h2>
+              <div className={`px-6 py-1 rounded-full inline-block font-black uppercase text-xs tracking-widest shadow-xl ${g.selectingPlayer === 'P1' ? 'bg-blue-600' : 'bg-red-600'}`}>
+                 {g.selectingPlayer === 'P1' ? 'PLAYER 1' : 'PLAYER 2'} CHOICE
+              </div>
+           </div>
+           <DeckSelect key={g.selectingPlayer} onSelect={g.handleDeckSelect} player={g.selectingPlayer} color={g.selectingPlayer === 'P1' ? 'blue' : 'red'} excludeIds={g.selectingPlayer === 'P2' ? new Set(g.p1Hand.map(c => c.id)) : new Set()} />
+        </div>
+      )}
+
+      {/* COIN TOSS OVERLAY */}
+      {g.gameState === 'COIN_TOSS' && g.tossWinner && (
+         <CoinToss winner={g.tossWinner === 'P1' ? 'P1' : 'P2'} onComplete={() => g.setGameState('PLAYING')} />
+      )}
+
+      {/* MAIN GAME UI (Always Vertical Layout) */}
+      {['PLAYING', 'ROUND_END', 'GAME_OVER'].includes(g.gameState) && (
+        <>
+          <header className="flex justify-between items-center mb-4 border-b border-slate-900 pb-4 shrink-0">
+            <h1 className="text-xl lg:text-3xl font-black italic uppercase flex gap-4 items-center tracking-tighter">
+              <Swords className="text-blue-500" size={32} /> Triple Triad
+            </h1>
+            <div className="flex gap-8 items-center">
+              <div className="hidden sm:flex gap-2">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center ${g.matchResults[i] ? (g.matchResults[i].winner === 'P1' ? 'bg-blue-600 border-blue-400' : 'bg-red-600 border-red-400') : 'bg-slate-900 border-slate-800'}`}>
+                    {g.matchResults[i] ? (g.matchResults[i].winner === 'P1' ? <CheckCircle2 size={16} /> : <XCircle size={16} />) : <span className="text-slate-700 text-xs">{i+1}</span>}
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-4 text-4xl font-black italic tracking-tighter leading-none">
+                <span className="text-blue-500">{g.scores[0]}</span><span className="text-slate-700">-</span><span className="text-red-500">{g.scores[1]}</span>
+              </div>
+            </div>
+          </header>
+
+          <main className="flex-1 flex flex-col justify-between items-center gap-4 min-h-0 w-full max-w-lg mx-auto">
+            {/* Top: P2 Hand */}
+            <div className="w-full h-24 shrink-0">
+              <HandComp hand={g.p2Hand} score={g.scores[1]} isTurn={g.turn === 'P2'} color="red" selectedIdx={g.turn === 'P2' && g.settings.pvpMode ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} />
             </div>
             
-            {/* Board Area (Center) */}
-            <div className={`flex-1 flex flex-col items-center justify-center min-h-0 order-2 relative ${isLandscape ? 'h-full' : 'w-full'}`}>
-              <div className={`px-6 lg:px-12 py-1 lg:py-2 rounded-full mb-2 lg:mb-6 font-black uppercase text-xs lg:text-lg shadow-2xl border-2 z-50 transition-colors ${g.turn === 'P1' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-red-600/20 border-red-500 text-red-400'}`}>
+            {/* Center: Board */}
+            <div className="flex-1 w-full flex flex-col items-center justify-center min-h-0 relative">
+              <div className={`px-8 py-1 rounded-full mb-2 font-black uppercase text-xs shadow-xl border-2 z-50 transition-colors ${g.turn === 'P1' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-red-600/20 border-red-500 text-red-400'}`}>
                 {g.turn === 'P1' ? "Player 1 Turn" : (g.settings.pvpMode ? "Player 2 Turn" : "CPU Thinking...")}
               </div>
-              
-              {/* Board Container: 縦横どちらでも画面内に収まるように制限 */}
-              <div className={`aspect-square flex items-center justify-center ${isLandscape ? 'h-full max-h-[80vh]' : 'w-full max-w-[80vw]'}`}>
+              <div className="w-full aspect-square max-h-[50vh]">
                 <BoardComp 
                   board={g.board} 
                   onPlace={(idx) => g.selectedCardIdx !== null && g.placeCard(idx, g.turn === 'P1' ? g.p1Hand : g.p2Hand, g.selectedCardIdx, g.turn)} 
@@ -800,42 +765,39 @@ export default function App() {
               </div>
             </div>
 
-            {/* P1 Hand (Bottom/Left) */}
-            <div className={`${isLandscape ? 'w-48 h-full order-1' : 'w-full h-24 shrink-0 order-3'}`}>
-              <HandComp hand={g.p1Hand} score={g.scores[0]} isTurn={g.turn === 'P1'} color="blue" selectedIdx={g.turn === 'P1' ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} isLandscape={isLandscape} />
+            {/* Bottom: P1 Hand */}
+            <div className="w-full h-24 shrink-0">
+              <HandComp hand={g.p1Hand} score={g.scores[0]} isTurn={g.turn === 'P1'} color="blue" selectedIdx={g.turn === 'P1' ? g.selectedCardIdx : null} onSelect={g.setSelectedCardIdx} />
             </div>
-          </>
-        )}
-      </main>
+          </main>
+        </>
+      )}
 
+      {/* Result Modal */}
       {['ROUND_END', 'GAME_OVER'].includes(g.gameState) && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex items-center justify-center z-50 p-6 lg:p-12">
-          <div className="bg-slate-900 border-4 border-slate-800 p-8 lg:p-16 rounded-[2rem] lg:rounded-[4rem] text-center max-w-2xl w-full shadow-2xl animate-in zoom-in-95 duration-300">
-            <Trophy className="w-12 h-12 lg:w-20 lg:h-20 text-yellow-500 mx-auto mb-4 lg:mb-6 drop-shadow-[0_0_20px_rgba(234,179,8,0.4)]" />
-            <h2 className="text-3xl lg:text-6xl font-black italic uppercase mb-4 lg:mb-8 tracking-tighter text-white leading-none">
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl flex items-center justify-center z-50 p-6">
+          <div className="bg-slate-900 border-4 border-slate-800 p-10 rounded-[3rem] text-center max-w-lg w-full shadow-2xl animate-in zoom-in-95">
+            <Trophy className="w-16 h-16 text-yellow-500 mx-auto mb-4 drop-shadow-[0_0_20px_rgba(234,179,8,0.5)]" />
+            <h2 className="text-4xl lg:text-5xl font-black italic uppercase mb-6 tracking-tighter text-white">
               {g.matchResults[g.matchResults.length-1]?.winner === 'P1' ? 'PLAYER 1' : g.matchResults[g.matchResults.length-1]?.winner === 'P2' ? 'PLAYER 2' : 'DRAW'}
-              <div className="text-sm lg:text-2xl mt-2 text-slate-500 tracking-widest uppercase">{g.gameState === 'GAME_OVER' ? 'SERIES CHAMPION' : 'MATCH VICTORY'}</div>
+              <div className="text-xl mt-1 text-slate-500 tracking-widest">{g.gameState === 'GAME_OVER' ? 'SERIES CHAMPION' : 'MATCH VICTORY'}</div>
             </h2>
             <button 
-              onClick={() => {
-                if (g.gameState === 'GAME_OVER') { g.setRound(1); g.setMatchResults([]); g.setGameState('TITLE'); }
-                else { g.setRound(r => r + 1); g.setSelectingPlayer('P1'); g.setGameState('DECK_SELECT'); }
-              }} 
-              className="w-full py-4 lg:py-6 bg-white text-slate-950 rounded-full font-black text-lg lg:text-2xl uppercase italic hover:bg-slate-100 transition-all active:scale-95 shadow-xl leading-none"
+              onClick={() => g.gameState === 'GAME_OVER' ? g.setGameState('TITLE') : g.nextRound()} 
+              className="w-full py-4 bg-white text-slate-950 rounded-full font-black text-xl uppercase italic hover:bg-slate-100 transition-all active:scale-95 shadow-xl"
             >
               {g.gameState === 'GAME_OVER' ? 'Return to Title' : 'Start Next Match'}
             </button>
           </div>
         </div>
       )}
+      
       <style dangerouslySetInnerHTML={{ __html: `
         .perspective-1000{perspective:1000px}
         .transform-style-3d{transform-style:preserve-3d}
         .backface-hidden{backface-visibility:hidden}
         .rotate-y-180{transform:rotateY(180deg)}
-        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-        .animate-in { animation: fade-in 0.5s ease-out forwards; }
-        .animate-effect-text { animation: effect-text 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } } .animate-in { animation: fade-in 0.5s ease-out forwards; }
       `}} />
     </div>
   );
