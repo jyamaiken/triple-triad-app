@@ -410,7 +410,7 @@ const CoinToss: React.FC<{ winner: string; onComplete: () => void }> = ({ winner
   }, [winner, onComplete]);
 
   return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl z-50 p-4">
+    <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-2xl z-50 p-4 safe-area">
       <div className="mb-8 sm:mb-16 text-center animate-in fade-in duration-500">
         <h2 className="text-3xl sm:text-5xl font-black italic tracking-[0.2em] text-white uppercase mb-4 leading-none">Coin Toss</h2>
         <p className="text-slate-400 font-black tracking-widest uppercase text-[10px] sm:text-sm leading-none">Determining the First Turn...</p>
@@ -655,7 +655,7 @@ export default function App() {
 
   // UI RENDER
   if (g.gameState === 'TITLE') return (
-    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden relative">
+    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col items-center justify-center p-8 font-sans overflow-hidden relative safe-area">
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full animate-pulse" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700" />
       
@@ -724,7 +724,7 @@ export default function App() {
   );
 
   if (g.gameState === 'DECK_SELECT') return (
-    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans overflow-hidden">
+    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans overflow-hidden safe-area">
       <div className="h-full flex flex-col items-center overflow-y-auto pb-10 w-full">
          <div className="mb-4 sm:mb-6 text-center shrink-0 pt-4">
             <h2 className="text-2xl sm:text-4xl font-black italic uppercase text-white mb-1 leading-none">Deck Selection</h2>
@@ -747,13 +747,13 @@ export default function App() {
   );
 
   if (g.gameState === 'COIN_TOSS') return (
-    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans">
+    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-sans safe-area">
        {g.tossWinner && <CoinToss winner={g.tossWinner === 'P1' ? 'P1' : 'P2'} onComplete={() => g.setGameState('PLAYING')} />}
     </div>
   );
 
   return (
-    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col p-2 lg:p-6 font-sans overflow-hidden">
+    <div className="w-full h-[100dvh] bg-slate-950 text-white flex flex-col p-2 lg:p-6 font-sans overflow-hidden safe-area">
       <header className="flex justify-between items-center mb-2 lg:mb-6 border-b border-slate-900 pb-2 lg:pb-4 shrink-0 z-50">
         <h1 className="text-lg lg:text-3xl font-black italic uppercase flex gap-2 lg:gap-4 items-center tracking-tighter">
           <Swords className="text-blue-500" size={!isLandscape ? 24 : 32} /> Triple Triad
@@ -845,3 +845,4 @@ export default function App() {
     </div>
   );
 }
+
